@@ -16,7 +16,9 @@ const TIERS = [
   { id: 'diamond', min: 500, name: 'Galaxy',       emoji: '🌌', c: ['#ecfdff', '#5cdcf8', '#2868d0'], burst: 70 }
 ];
 const tierOf = coins => { let n = 0; TIERS.forEach((t, i) => { if (coins >= t.min) n = i; }); return n; };
-const GOALS = [100, 300, 700, 1500, 3000, 6000, 10000];
+const GOALS = [100];   // сколько монет нужно на каждый взрыв сундука; можно задать рост: [100, 300, 700]
+// Гравировка: картинка или буква зрителя переводится в цвет металла монеты с рельефом
+const ENGRAVE = { on: true, color: .1, relief: 2.4, tone: .32, lines: .7 };   // color: сколько оставить родного цвета фото
 // Комбо: подарки одного зрителя с паузой не больше COMBO.gap мс; на ×5 монета на ступень дороже, на ×10 ещё на ступень
 const COMBO = { gap: 20000, max: 10, steps: [5, 10] };
 // Бесплатные монеты: за каждые LIKES.step лайков от одного зрителя и за первую подписку в эфире. Двигают полосу на +1
@@ -29,7 +31,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 8;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 10;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -99,6 +101,46 @@ function thumb(a) {
 }
 
 // Монета: рамка своего металла, внутри аватарка
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+function engrave(src, ti, n) {
+  const c = document.createElement('canvas'); c.width = c.height = n;
+  const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(src, 0, 0, n, n);
+  const d = x.getImageData(0, 0, n, n), p = d.data, N = n * n, L0 = new Float32Array(N), Ln = new Float32Array(N);
+  for (let i = 0; i < N; i++) L0[i] = (p[i * 4] * .299 + p[i * 4 + 1] * .587 + p[i * 4 + 2] * .114) / 255;
+  // лёгкое размытие против шума
+  for (let y = 0; y < n; y++) for (let xx = 0; xx < n; xx++) {
+    let s = 0, k = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = y + dy, xq = xx + dx; if (yy >= 0 && yy < n && xq >= 0 && xq < n) { s += L0[yy * n + xq]; k++; } }
+    Ln[y * n + xx] = s / k;
+  }
+  // растягиваем контраст: тёмные и светлые фото выглядят одинаково
+  const sorted = Float32Array.from(Ln).sort(), lo = sorted[Math.floor(N * .03)], hi = sorted[Math.floor(N * .97)], span = Math.max(.08, hi - lo);
+  for (let i = 0; i < N; i++) Ln[i] = clamp((Ln[i] - lo) / span);
+  // второе размытие даёт гладкий рельеф: картинка становится выпуклой, как отчеканенная
+  const Hh = new Float32Array(N);
+  for (let y = 0; y < n; y++) for (let xx = 0; xx < n; xx++) {
+    let s2 = 0, k2 = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const yy = y + dy, xq = xx + dx; if (yy >= 0 && yy < n && xq >= 0 && xq < n) { s2 += Ln[yy * n + xq]; k2++; } }
+    Hh[y * n + xx] = s2 / k2;
+  }
+  const [cl, cm, cd] = TIERS[ti].c.map(hexRgb), half = n / 2, kr = ENGRAVE.relief * 3 * (224 / n);
+  for (let y = 0; y < n; y++) for (let xx = 0; xx < n; xx++) {
+    const i = y * n + xx, v = Ln[i], xr = Math.min(n - 1, xx + 1), yd = Math.min(n - 1, y + 1), xl = Math.max(0, xx - 1), yu = Math.max(0, y - 1);
+    const gx = Hh[y * n + xr] - Hh[y * n + xl], gy = Hh[yd * n + xx] - Hh[yu * n + xx];
+    const shade = .5 + (gx + gy) * kr;                                                   // свет сверху-слева
+    const edge = Math.abs(Ln[y * n + xr] - Ln[y * n + xl]) + Math.abs(Ln[yd * n + xx] - Ln[yu * n + xx]);
+    const dx = (xx - half) / half, dy = (y - half) / half, rr = Math.sqrt(dx * dx + dy * dy);
+    let t = .34 + ENGRAVE.tone * (v - .5) + (shade - .5) * 1.25 - edge * ENGRAVE.lines * .5 + (Math.random() - .5) * .035;
+    t *= 1 - .18 * rr * rr;                                                               // чаша: к краю темнее
+    t -= .2 * clamp((rr - .84) / .16) * (dy < 0 ? 1 : .35);                              // тень от ободка сверху
+    t = clamp(t);
+    let m = t < .5 ? [0, 1, 2].map(k => cd[k] + (cm[k] - cd[k]) * t * 2) : [0, 1, 2].map(k => cm[k] + (cl[k] - cm[k]) * (t - .5) * 2);
+    const sp = clamp((shade - .78) * 2.5); if (sp > 0) m = m.map(q => q + (255 - q) * sp * .7);   // блик на выпуклостях
+    for (let k = 0; k < 3; k++) p[i * 4 + k] = m[k] + (p[i * 4 + k] - m[k]) * ENGRAVE.color;
+  }
+  x.putImageData(d, 0, 0);
+  return c;
+}
 function makeCoin(a, ti, free) {
   const S = 320, c = document.createElement('canvas'); c.width = c.height = S;
   const x = c.getContext('2d'), t = TIERS[ti], R = S / 2, frame = art['coin_' + t.id];
@@ -113,9 +155,14 @@ function makeCoin(a, ti, free) {
   }
   const hr = frame ? S * HOLE / 2 * 1.05 : R - 36;
   x.save(); x.beginPath(); x.arc(R, R, hr, 0, TAU); x.clip();
-  x.drawImage(a.src, R - hr, R - hr, hr * 2, hr * 2);
-  x.globalCompositeOperation = 'multiply'; x.globalAlpha = .38; x.fillStyle = t.c[0]; x.fillRect(0, 0, S, S); // лёгкий оттенок металла
-  x.globalCompositeOperation = 'source-over'; x.globalAlpha = 1;
+  let eng = null;
+  if (ENGRAVE.on) try { eng = engrave(a.src, ti, Math.round(hr * 2)); } catch (e) { eng = null; }   // чужая картинка без доступа: обычный режим
+  if (eng) x.drawImage(eng, R - hr, R - hr, hr * 2, hr * 2);
+  else {
+    x.drawImage(a.src, R - hr, R - hr, hr * 2, hr * 2);
+    x.globalCompositeOperation = 'multiply'; x.globalAlpha = .38; x.fillStyle = t.c[0]; x.fillRect(0, 0, S, S);
+    x.globalCompositeOperation = 'source-over'; x.globalAlpha = 1;
+  }
   const gl = x.createLinearGradient(0, 40, S, S); gl.addColorStop(0, 'rgba(255,255,255,.30)'); gl.addColorStop(.42, 'rgba(255,255,255,0)'); gl.addColorStop(1, 'rgba(0,0,0,.22)');
   x.fillStyle = gl; x.fillRect(0, 0, S, S);
   x.restore();
@@ -239,13 +286,13 @@ function startBuild() {
 }
 // Сундук переполнен: дрожит, светится и взрывается фонтаном монет
 function doBurst() {
-  value -= curGoal(); level++;
+  value = Math.min(value - curGoal(), Math.floor(curGoal() * .8)); level++;
   sfx('win', 4); flash = .55; flashColor = '#fff1a8'; shake = 42; chestKick = 2;
   const pool = sprites.length ? sprites : [{ s: blankCoin(0), tier: 0 }];
   for (let i = 0; i < 72; i++) {
     const own = i < 30 && i < pool.length * 2, src = own ? pool[i % pool.length] : null, ti = src ? src.tier : Math.floor(rand(0, 5));
     tiny.push({ spin: true, sprite: src ? src.s : blankCoin(ti), tier: ti, x: L.cx + rand(-L.slotHW, L.slotHW), y: L.pileY + rand(0, 70),
-      vx: rand(-560, 560), vy: -rand(950, 1800), r: own ? rand(40, 62) : rand(22, 38), ang: rand(0, TAU), vang: rand(-14, 14), life: rand(2.2, 3.2), grow: i % 9 === 0 ? rand(70, 150) : 0 });
+      vx: rand(-560, 560), vy: -rand(950, 1800), r: own ? rand(40, 62) : rand(22, 38), ang: rand(0, TAU), vang: rand(-14, 14), life: rand(2.2, 3.2), grow: i % 14 === 0 ? rand(45, 80) : 0 });
   }
   ring(L.cx, L.pileY, 760, '#fff1a8', .8, 20); ring(L.cx, L.pileY, 520, '#ffb12b', .65, 14, -.12); ring(L.cx, L.pileY, 300, '#ffffff', .4, 10);
   burst(L.cx, L.pileY, TIERS[4], 100, 1300);
@@ -463,21 +510,53 @@ function drawLegend() {
     coinAt(blankCoin(i), cx + 44, y + wob, 31); glint(cx + 44, y + wob, 30, ((time * .3 + i * .2) % 1) / .3);
   });
 }
+const easeInOut = t => t < .5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+// Подвес по металлу: бронза на бечёвке, серебро и золото на цепочках, рубин с бусинами, бриллиант светится
+function drawRope(x0, y0, x1, y1, ti) {
+  const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
+  g.save(); g.translate(x0, y0); g.rotate(ang);
+  if (ti === 0) {
+    g.lineWidth = 4; g.strokeStyle = '#a07a45'; g.beginPath(); g.moveTo(0, 0); g.lineTo(len, 0); g.stroke();
+    g.lineWidth = 1.4; g.strokeStyle = 'rgba(55,30,12,.75)'; for (let k = 4; k < len; k += 6) { g.beginPath(); g.moveTo(k - 2, -2); g.lineTo(k + 2, 2); g.stroke(); }
+  } else {
+    const col = [null, ['#eef2f6', '#7f8a97'], ['#ffe27a', '#a1730c'], ['#ffd27a', '#9c6a10'], ['#d9fbff', '#4aa9d8']][ti], step = ti >= 2 ? 11 : 9, n = Math.max(2, Math.floor(len / step));
+    if (ti === 4) { g.shadowColor = '#7ff3ff'; g.shadowBlur = 10; }
+    for (let k = 0; k < n; k++) {
+      const px = (k + .5) * len / n, face = k % 2 === 0;
+      g.beginPath(); g.ellipse(px, 0, step * .62, face ? step * .42 : step * .15, 0, 0, TAU); g.lineWidth = face ? 2.6 : 3; g.strokeStyle = col[face ? 0 : 1]; g.stroke();
+      if (ti === 3 && k % 4 === 2) { g.fillStyle = '#e0244d'; g.beginPath(); g.arc(px, 0, 4.5, 0, TAU); g.fill(); }
+    }
+  }
+  g.restore();
+}
 function drawWall() {
-  const y = L.rope, n = 7, w = Math.min(W - 60, 980), x0 = L.cx - w / 2, gap = w / n;
+  const y = L.rope, n = 7, w = Math.min(W - 60, 980), x0 = L.cx - w / 2, gap = w / n, now = performance.now();
   if (art.wall) stretch3(art.wall, x0 - 20, y - 24, w + 40, 48, 70);
   else { g.lineWidth = 10; g.strokeStyle = '#a57a3d'; g.beginPath(); g.moveTo(x0 - 10, y); g.lineTo(x0 + w + 10, y); g.stroke(); }
   for (let i = 0; i < n; i++) {
     const cx = x0 + gap * (i + .5), it = wall[i], len = 56;
     if (!it) { g.fillStyle = 'rgba(255,240,200,.14)'; g.beginPath(); g.arc(cx, y + len + 52, 50, 0, TAU); g.fill(); continue; }
-    const age = (performance.now() - it.at) / 1000, drop = -(1 - easeOut(clamp(age / .5))) * 230;
-    const sw = Math.sin(time * 6 + i) * it.swing * .42 + Math.sin(time * 1.3 + i * 1.1) * .05, hx = cx + Math.sin(sw) * len, hy = y + Math.cos(sw) * len + drop;
-    g.lineWidth = 4; g.strokeStyle = '#d6b36a'; g.beginPath(); g.moveTo(cx, y); g.lineTo(hx, hy); g.stroke();
-    if (i === 0) halo(hx, hy + 46, 120, TIERS[it.tier].c[1], .3 + .12 * Math.sin(time * 3));
-    g.drawImage(it.sprite, hx - 56, hy - 10, 112, 112);
-    glint(hx, hy + 46, 54, ((time * .22 + i * .37) % 1) / .25, .5);
-    if (age < .9) for (let k = 0; k < 5; k++) { const q = k / 5 * TAU + age * 3; star(hx + Math.cos(q) * 70 * easeOut(age / .9), hy + 46 + Math.sin(q) * 70 * easeOut(age / .9), 12, 1 - age / .9, TIERS[it.tier].c[0]); }
-    txt(shortName(it.user, 8), hx, hy + 122, 21, TIERS[it.tier].c[0], 'center', 5);
+    const t = it.tier, age = (now - it.at) / 1000, drop = -(1 - easeOut(clamp(age / .5))) * 230;
+    const sway = Math.sin(time * (1.3 - t * .12) + i * 1.1) * (.06 - t * .008);       // дорогие качаются спокойнее
+    const sw = Math.sin(time * 6 + i) * it.swing * .42 + sway, bob = t === 4 ? Math.sin(time * 2 + i) * 6 : 0;
+    const hx = cx + Math.sin(sw) * len, hy = y + Math.cos(sw) * len + drop + bob, ccy = hy + 46;
+    // за монетой
+    if (t === 4) rays(hx, ccy, 40, 80, 10, ['#ffffff', '#7ff3ff', '#ff9cf0', '#fff59a'], time * .6 + i, .4);
+    if (t >= 3) halo(hx, ccy, 110, TIERS[t].c[1], .35 + .15 * Math.sin(time * 2.4 + i));
+    else if (t === 2) halo(hx, ccy, 92, TIERS[t].c[1], .16 + .08 * Math.sin(time * 2 + i));
+    else if (i === 0) halo(hx, ccy, 110, TIERS[t].c[1], .25 + .1 * Math.sin(time * 3));
+    drawRope(cx, y, hx, hy, t);
+    // монета: рубин и бриллиант время от времени делают оборот
+    const per = t === 4 ? 4 : 6.5, sp = ((time + i * .9) % per) / .9;
+    if (t >= 3 && sp < 1) spinCoin(it.sprite, t, hx, ccy, 56, easeInOut(sp) * TAU);
+    else g.drawImage(it.sprite, hx - 56, hy - 10, 112, 112);
+    // блик: чем дороже, тем чаще
+    const gp = [9, 4.5, 3, 2.5, 1.8][t]; glint(hx, ccy, 54, ((time + i * .7) % gp) / .6, t >= 2 ? .6 : .45);
+    // искры вокруг золота, рубина, бриллианта
+    const ns = [0, 0, 2, 3, 6][t];
+    for (let k = 0; k < ns; k++) { const q = k / ns * TAU + time * (.6 + t * .15), d = 64 + 6 * Math.sin(time * 3 + k); star(hx + Math.cos(q) * d, ccy + Math.sin(q) * d, 7 + t * 2.5, Math.max(0, Math.sin(time * 4 + k * 2 + i)), k % 2 ? '#ffffff' : TIERS[t].c[0]); }
+    if (age < .9) for (let k = 0; k < 5; k++) { const q = k / 5 * TAU + age * 3; star(hx + Math.cos(q) * 70 * easeOut(age / .9), ccy + Math.sin(q) * 70 * easeOut(age / .9), 12, 1 - age / .9, TIERS[t].c[0]); }
+    txt(shortName(it.user, 8), hx, hy + 122, 21, TIERS[t].c[0], 'center', 5);
   }
 }
 function drawPressArt() {
@@ -675,7 +754,7 @@ function draw() {
   for (const f of flyers) { if (f.t < 0) continue; const u = clamp(f.t / f.d); g.save(); g.translate(lerp(f.x, f.tx, u), lerp(f.y, f.ty, u * u) - Math.sin(u * Math.PI) * 120); g.rotate(f.a + u * 8); g.drawImage(f.sprite, -f.r, -f.r, f.r * 2, f.r * 2); g.restore(); }
   drawIdle(); drawJob();
   for (const p of tiny) {
-    g.globalAlpha = clamp(p.life / .6);
+    g.globalAlpha = clamp(p.life / .6) * (p.grow ? clamp(1 - (p.r - 60) / 140) : 1);
     if (p.spin) spinCoin(p.sprite, p.tier, p.x, p.y, p.r, p.ang);
     else { g.save(); g.translate(p.x, p.y); g.rotate(p.a); g.drawImage(p.sprite, -p.r, -p.r, p.r * 2, p.r * 2); g.restore(); }
   }
@@ -722,10 +801,24 @@ setTimeout(() => fsB.classList.add('off'), 8000);
 // Боты только для проверки. На планшете включаются адресом ?test=1, в эфире их нет
 const NAMES = ['Алина', 'Maks_07', 'Dulce Thiime', 'ProPlay44', 'Катя ✨', '小猪猪', 'Ivan Alexandro', 'lazy_ga', 'Беня', 'ERI', 'wolf.of.north', 'Hani', 'Лука', 'saaa', 'Marta🌹', 'kingeris', 'Óscar', 'yulianas4'];
 let bots = false, botTimer = 0;
+// Нарисованные портреты для ботов, чтобы проверять гравировку на картинках, а не только на буквах
+const portraits = [];
+function makePortrait(k) {
+  const c = document.createElement('canvas'); c.width = c.height = 160; const x = c.getContext('2d'), h = (k * 67) % 360;
+  const bgc = x.createLinearGradient(0, 0, 160, 160); bgc.addColorStop(0, `hsl(${h} 60% 70%)`); bgc.addColorStop(1, `hsl(${(h + 60) % 360} 50% 35%)`); x.fillStyle = bgc; x.fillRect(0, 0, 160, 160);
+  const skin = ['#f1c7a3', '#d9a07a', '#a8714a', '#6b4429', '#f5d7bf'][k % 5], hair = ['#2a1a10', '#6b3d1c', '#e0b25a', '#111', '#b84a2a', '#ddd'][k % 6];
+  x.fillStyle = `hsl(${(h + 180) % 360} 45% 30%)`; x.beginPath(); x.ellipse(80, 168, 64, 50, 0, 0, TAU); x.fill();
+  x.fillStyle = skin; x.fillRect(66, 96, 28, 26); x.beginPath(); x.ellipse(80, 78, 34, 40, 0, 0, TAU); x.fill();
+  x.fillStyle = hair; x.beginPath(); x.ellipse(80, 54, 38, 24, 0, Math.PI, TAU); x.fill(); if (k % 3 === 0) { x.fillRect(42, 52, 12, 52); x.fillRect(106, 52, 12, 52); }
+  x.fillStyle = '#1a1a1a'; if (k % 4 === 1) { x.fillRect(52, 70, 24, 12); x.fillRect(84, 70, 24, 12); x.fillRect(74, 73, 12, 3); } else { x.beginPath(); x.arc(67, 76, 4, 0, TAU); x.arc(93, 76, 4, 0, TAU); x.fill(); }
+  x.strokeStyle = '#7a3b2a'; x.lineWidth = 3; x.beginPath(); x.arc(80, 92, 12, .2, Math.PI - .2); x.stroke();
+  return c.toDataURL('image/jpeg', .85);
+}
 function botGift(ti) {
   const i = Math.floor(rand(0, NAMES.length)), t = ti ?? (Math.random() < .68 ? 0 : Math.random() < .62 ? 1 : Math.random() < .6 ? 2 : Math.random() < .7 ? 3 : 4);
   const coins = [1, 5, 30, 100, 1000][t], name = NAMES[i] + (Math.random() < .5 ? '' : ' ' + Math.floor(rand(1, 99)));
-  addGift({ user: name, uid: name, coins, count: t === 0 && Math.random() < .3 ? 10 : 1 });
+  if (i % 2 === 0 && !portraits[i]) portraits[i] = makePortrait(i);
+  addGift({ user: name, uid: name, pic: portraits[i] || '', coins, count: t === 0 && Math.random() < .3 ? 10 : 1 });
 }
 function botTick() { if (bots) { botGift(); } botTimer = setTimeout(botTick, rand(500, 2400)); }
 if (Live.testMode) {
@@ -744,7 +837,7 @@ if (Live.testMode) {
   bots = true; pn.querySelector('button:nth-of-type(8)').setAttribute('aria-pressed', 'true');
 }
 
-window.__mint = { onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, stat: () => ({ fps, queue: queue.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
+window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, stat: () => ({ fps, queue: queue.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
 resize();
 requestAnimationFrame(loop);
 })();
