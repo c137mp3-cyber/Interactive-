@@ -129,7 +129,7 @@ function blankCoin(ti) {
 const queue = []; let dirty = false, job = null;
 const wall = [], parts = [], flyers = [], tiny = [];
 const donors = new Map(); let topDonors = [];
-let shake = 0, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
+let hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function addGift(m) {
@@ -165,6 +165,7 @@ function nextPhase() {
   if (j.ph >= j.dur.length) land(j);
 }
 function strike(j) {
+  hitstop = .045 + j.tier * .012; anvilKick = 1;
   shake = Math.max(shake, 12 + j.tier * 5); sfx('clank', j.tier);
   burst(L.cx, L.anvil - 30, TIERS[j.tier], 14 + j.tier * 6, 560);
   if (j.avatar.v !== j.v) j.sprite = makeCoin(j.avatar, j.tier);
@@ -239,6 +240,9 @@ function sfx(k, ti) {
 // Обновление
 function update(dt) {
   time += dt;
+  if (hitstop > 0) { hitstop -= dt; return; }   // короткая заморозка в момент удара
+  anvilKick = Math.max(0, anvilKick - dt * 7);
+  updateEmbers(dt);
   if (!job) startNext();
   let target = 0;
   if (job) {
@@ -256,6 +260,30 @@ function update(dt) {
   for (let i = tiny.length - 1; i >= 0; i--) { const p = tiny[i]; p.life -= dt; if (p.life <= 0 || p.y > H + 700) { tiny.splice(i, 1); continue; } p.vy += 1400 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.a += p.va * dt; }
   shake = Math.max(0, shake - dt * 70); flash = Math.max(0, flash - dt * 1.7); chestKick = Math.max(0, chestKick - dt * 4);
   wall.forEach(w => { w.swing = Math.max(0, w.swing - dt * .55); });
+}
+
+// Печь: мерцание света и искры, привязаны к картинке фона
+const FIRE = { x: 140, y: 745 };   // где в bg.png горит огонь
+function fireAt() {
+  const b = art.bg; if (!b) return null;
+  const s = Math.max(SCW / b.width, SCH / b.height);
+  return { x: SCW / 2 - b.width * s / 2 + FIRE.x * s, y: SCH / 2 - b.height * s / 2 + FIRE.y * s, s };
+}
+function updateEmbers(dt) {
+  const f = fireAt(); if (!f) return;
+  emberAcc += dt * 7;
+  while (emberAcc >= 1 && embers.length < 26) { emberAcc--; embers.push({ x: f.x + rand(-26, 26) * f.s, y: f.y + rand(-10, 10) * f.s, vx: rand(-12, 18), vy: -rand(40, 110), life: rand(1.4, 2.8), max: 2.8, ph: rand(0, TAU), z: rand(1.5, 3.5) }); }
+  emberAcc %= 1;
+  for (let i = embers.length - 1; i >= 0; i--) { const e = embers[i]; e.life -= dt; if (e.life <= 0) { embers.splice(i, 1); continue; } e.x += (e.vx + Math.sin(time * 3 + e.ph) * 14) * dt; e.y += e.vy * dt; }
+}
+function drawFire() {
+  const f = fireAt(); if (!f) return;
+  const k = .11 + .05 * Math.sin(time * 9) + .04 * Math.sin(time * 23.7 + 1), r = 300 * f.s;
+  g.save(); g.globalCompositeOperation = 'lighter';
+  const gr = g.createRadialGradient(f.x, f.y, 10, f.x, f.y, r); gr.addColorStop(0, `rgba(255,150,50,${k})`); gr.addColorStop(1, 'rgba(255,150,50,0)');
+  g.fillStyle = gr; g.fillRect(f.x - r, f.y - r, r * 2, r * 2);
+  for (const e of embers) { g.globalAlpha = clamp(e.life / 1.2) * .9; g.fillStyle = '#ffb347'; g.fillRect(e.x, e.y, e.z, e.z); }
+  g.restore();
 }
 
 // Рисование
@@ -282,7 +310,7 @@ function txt(s, x, y, size, color = '#fff5df', align = 'center', stroke = 6) {
   if (stroke) { g.lineWidth = stroke; g.strokeStyle = 'rgba(25,12,8,.9)'; g.strokeText(s, x, y); }
   g.fillStyle = color; g.fillText(s, x, y);
 }
-function coinAt(sp, x, y, r, spin = 1) { g.save(); g.translate(x, y); g.scale(Math.max(.04, Math.abs(spin)), 1); g.drawImage(sp, -r, -r, r * 2, r * 2); g.restore(); }
+function coinAt(sp, x, y, r, spin = 1, sy = 1) { g.save(); g.translate(x, y + r * (1 - sy)); g.scale(Math.max(.04, Math.abs(spin)), sy); g.drawImage(sp, -r, -r, r * 2, r * 2); g.restore(); }
 
 let giftIcons = [];
 function drawLegend() {
@@ -305,7 +333,8 @@ function drawWall() {
   for (let i = 0; i < n; i++) {
     const cx = x0 + gap * (i + .5), it = wall[i], len = 56;
     if (!it) { g.fillStyle = 'rgba(255,240,200,.14)'; g.beginPath(); g.arc(cx, y + len + 52, 50, 0, TAU); g.fill(); continue; }
-    const sw = Math.sin(time * 6 + i) * it.swing * .42, hx = cx + Math.sin(sw) * len, hy = y + Math.cos(sw) * len;
+    const age = (performance.now() - it.at) / 1000, drop = -(1 - easeOut(clamp(age / .5))) * 230;
+    const sw = Math.sin(time * 6 + i) * it.swing * .42, hx = cx + Math.sin(sw) * len, hy = y + Math.cos(sw) * len + drop;
     g.lineWidth = 4; g.strokeStyle = '#d6b36a'; g.beginPath(); g.moveTo(cx, y); g.lineTo(hx, hy); g.stroke();
     g.drawImage(it.sprite, hx - 56, hy - 10, 112, 112);
     txt(shortName(it.user, 8), hx, hy + 122, 21, TIERS[it.tier].c[0], 'center', 5);
@@ -313,14 +342,14 @@ function drawWall() {
 }
 function drawPressArt() {
   const cx = L.cx, a = L.anvil, fr = art.press_frame, an = art.anvil, ph = art.press_head, F = FRAME, sf = F.s;
-  const aw = an.width * ANVIL.s, ah = an.height * ANVIL.s, ax = cx - ANVIL.fx * ANVIL.s, ay = a + 8 - ANVIL.fy * ANVIL.s;
+  const aw = an.width * ANVIL.s, ah = an.height * ANVIL.s, ax = cx - ANVIL.fx * ANVIL.s, ay = a + 8 - ANVIL.fy * ANVIL.s + anvilKick * 7;
   const hole = F.hole, fx = cx - (hole[0] + hole[2]) / 2 * sf, fy = ay + 22 - hole[3] * sf, beamBottom = fy + hole[1] * sf;
   // лента подачи
   g.fillStyle = '#231b20'; rr(0, a + 8, cx - 100, 22, 4); g.fill();
   g.fillStyle = '#5b4a3d'; const off = (job && job.ph === 0 ? time * 240 : 0) % 44;
   for (let x = -44 + off; x < cx - 110; x += 44) g.fillRect(x, a + 12, 22, 14);
   // штанга и головка: за рамой, верхняя часть прячется за балкой
-  const hw = 190, hh = hw * ph.height / ph.width, hb = lerp(beamBottom + 40, a - 106, pressY), rx = cx - 16;
+  const hw = 125, hh = hw * ph.height / ph.width, hb = lerp(beamBottom + 40, a - 106, pressY), rx = cx - 16;
   g.fillStyle = '#6f6c76'; g.fillRect(rx, fy, 32, Math.max(0, hb - hh - fy));
   g.fillStyle = 'rgba(255,255,255,.14)'; g.fillRect(rx + 6, fy, 6, Math.max(0, hb - hh - fy));
   g.drawImage(ph, cx - hw / 2, hb - hh, hw, hh);
@@ -356,7 +385,8 @@ function drawJob() {
   const a = L.anvil, cx = L.cx, u = clamp(j.t / j.dur[j.ph]);
   if (j.ph <= 1) { coinAt(blankCoin(j.tier), j.ph === 0 ? lerp(-60, cx, easeOut(u)) : cx, a - 26, 76); }
   else if (j.ph <= 3) {
-    if (j.ph === 2) { const ss = j.sprite; coinAt(ss, cx, a - 26, 82); }
+    if (j.ph === 2) coinAt(j.sprite, cx, a - 26, 82, 1, .72 + .28 * u * u);
+    else if (j.ph === 3) coinAt(j.sprite, cx, a - 26, 82, 1, 1 + .1 * Math.sin(u * Math.PI));
     else coinAt(j.sprite, cx, a - 26, 82);
   }
   else if (j.ph === 4) { const e = easeOut(u); coinAt(j.sprite, cx, lerp(a - 26, L.heroY, e), lerp(82, 190 + j.tier * 12, e), Math.cos(u * TAU * 2)); }
@@ -441,6 +471,7 @@ function draw() {
     g.drawImage(art.bg, SCW / 2 - art.bg.width * s / 2, SCH / 2 - art.bg.height * s / 2, art.bg.width * s, art.bg.height * s);
     g.fillStyle = 'rgba(12,6,10,.30)'; g.fillRect(0, 0, SCW, SCH);   // затемнение, чтобы монеты и ники читались
   } else { if (!bg) buildBg(); g.drawImage(bg, 0, 0, SCW, SCH); }
+  drawFire();
   g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
   g.save();
   if (shake && !reduced) g.translate(rand(-shake, shake), rand(-shake, shake));
