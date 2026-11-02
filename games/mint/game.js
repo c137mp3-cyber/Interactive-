@@ -22,7 +22,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 5;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 6;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -129,9 +129,9 @@ function blankCoin(ti) {
 
 // Состояние
 const queue = []; let dirty = false, job = null;
-const wall = [], parts = [], flyers = [], tiny = [];
+const wall = [], parts = [], flyers = [], tiny = [], rings = [], spots = [], twinkles = [];
 const donors = new Map(); let topDonors = [];
-let hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
+let cine = 0, lvlT = 0, hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function addGift(m) {
@@ -153,7 +153,7 @@ function startNext() {
   sortQueue();
   const j = queue.shift();
   j.avatar = avatarOf(j); j.sprite = makeCoin(j.avatar, j.tier); j.v = j.avatar.v;
-  j.ph = 0; j.t = 0; j.dur = [.42, .15, .1, .22, .3, .55 + j.tier * .4, .4];
+  j.ph = 0; j.t = 0; j.dur = [.42, .15, .1, .22, .3 + j.tier * .08, .6 + j.tier * .45, .42];
   const q = queue.length;
   const slow = lerp(TEMPO, 1, clamp((q - 2) / 20));   // чем длиннее очередь, тем меньше замедление
   j.speed = (q <= 2 ? 1 : lerp(1.25, 4, clamp((q - 2) / 40))) / slow;
@@ -164,6 +164,7 @@ function nextPhase() {
   const j = job; j.ph++; j.t = 0;
   if (j.ph === 1) sfx('whoosh');
   if (j.ph === 2) strike(j);
+  if (j.ph === 5) heroStart(j);
   if (j.ph === 5) { sfx('ta', j.tier); if (j.tier >= 2) burst(L.cx, L.heroY, TIERS[j.tier], TIERS[j.tier].burst, 700); if (j.tier >= 3) { flash = j.tier === 4 ? .5 : .25; flashColor = TIERS[j.tier].c[1]; } }
   if (j.ph === 6) { j.slot = moundSlot(); for (let i = 1; i < Math.min(j.count, 16); i++) flyers.push({ sprite: blankCoin(j.tier), x: L.cx, y: L.heroY, t: -i * .05, d: rand(.45, .7), tx: L.cx + rand(-L.slotHW, L.slotHW), ty: L.slotY - rand(0, 60), a: rand(0, TAU), r: 26 }); }
   if (j.ph >= j.dur.length) land(j);
@@ -172,11 +173,14 @@ function strike(j) {
   hitstop = .045 + j.tier * .012; anvilKick = 1;
   shake = Math.max(shake, 12 + j.tier * 5); sfx('clank', j.tier);
   burst(L.cx, L.anvil - 30, TIERS[j.tier], 14 + j.tier * 6, 560);
+  ring(L.cx, L.anvil + 30, 170 + j.tier * 30, '#ffffff', .35, 12);
   if (j.avatar.v !== j.v) j.sprite = makeCoin(j.avatar, j.tier);
 }
 function land(j) {
   bake(j.sprite, j.slot); sfx('clink', j.tier); chestKick = 1; total++;
   burst(j.slot.x, j.slot.y, TIERS[j.tier], 6, 260);
+  ring(j.slot.x, j.slot.y, 70, TIERS[j.tier].c[0], .3, 6);
+  spots.push({ x: j.slot.x, y: j.slot.y, tier: j.tier }); if (spots.length > 40) spots.shift();
   sprites.push(j.sprite); if (sprites.length > 30) sprites.shift();
   addWall(j); sfx('rope');
   value += j.coins * j.count;
@@ -198,8 +202,17 @@ function levelUp() {
     tiny.push({ sprite: sprites[i % sprites.length], x: L.cx + rand(-180, 180), y: L.pileY + 60, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: rand(30, 58), a: rand(0, TAU), va: rand(-7, 7), life: 2.4 });
   }
   burst(L.cx, L.pileY, TIERS[4], 90, 1200);
+  ring(L.cx, L.pileY, 700, '#fff1a8', .8, 18); ring(L.cx, L.pileY, 480, '#ffb12b', .6, 12, -.15);
+  lvlT = 1.6; spots.length = 0;
   initMound();
 }
+function heroStart(j) {
+  const t = TIERS[j.tier], r = heroR(j);
+  if (j.tier >= 2) ring(L.cx, L.heroY, r * 2.1, t.c[0], .6, 14);
+  if (j.tier >= 3) { ring(L.cx, L.heroY, r * 2.8, t.c[1], .8, 10, -.18);
+    for (let i = 0; i < (j.tier === 4 ? 42 : 24); i++) tiny.push({ sprite: blankCoin(j.tier), x: rand(0, W), y: rand(-420, -40), vx: rand(-60, 60), vy: rand(80, 380), r: rand(16, 30), a: rand(0, TAU), va: rand(-6, 6), life: 3.2 }); }
+}
+function ring(x, y, r1, color, d = .5, w = 10, t = 0) { rings.push({ x, y, r1, color, d, w, t }); }
 function burst(x, y, t, n, sp) {
   n = Math.min(n, 120 - Math.min(parts.length, 100));
   for (let i = 0; i < n; i++) { const a = rand(0, TAU), s = rand(.25, 1) * sp; parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 170, life: rand(.4, .95), max: .95, size: rand(3, 9), c: t.c[i % 2] }); }
@@ -280,6 +293,11 @@ function update(dt) {
   for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.life -= dt; if (p.life <= 0) { parts.splice(i, 1); continue; } p.vy += 1100 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
   for (let i = flyers.length - 1; i >= 0; i--) { const f = flyers[i]; f.t += dt; if (f.t > f.d) { flyers.splice(i, 1); sfx('clink', 0); chestKick = Math.max(chestKick, .5); } }
   for (let i = tiny.length - 1; i >= 0; i--) { const p = tiny[i]; p.life -= dt; if (p.life <= 0 || p.y > H + 700) { tiny.splice(i, 1); continue; } p.vy += 1400 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.a += p.va * dt; }
+  for (let i = rings.length - 1; i >= 0; i--) { rings[i].t += dt; if (rings[i].t > rings[i].d) rings.splice(i, 1); }
+  for (let i = twinkles.length - 1; i >= 0; i--) { twinkles[i].t += dt; if (twinkles[i].t > twinkles[i].d) twinkles.splice(i, 1); }
+  if (spots.length && Math.random() < dt * (1.2 + spots.length * .08)) { const p = spots[Math.floor(rand(0, spots.length))]; twinkles.push({ x: p.x + rand(-22, 22), y: p.y + rand(-22, 10), t: 0, d: rand(.5, .9), s: 9 + p.tier * 4, c: TIERS[p.tier].c[0] }); }
+  const ct = job && (job.ph === 4 || job.ph === 5) ? [0, .12, .3, .5, .62][job.tier] : 0; cine = lerp(cine, ct, clamp(dt * 5));
+  lvlT = Math.max(0, lvlT - dt);
   shake = Math.max(0, shake - dt * 70); flash = Math.max(0, flash - dt * 1.7); chestKick = Math.max(0, chestKick - dt * 4);
   wall.forEach(w => { w.swing = Math.max(0, w.swing - dt * .55); });
 }
@@ -334,6 +352,49 @@ function txt(s, x, y, size, color = '#fff5df', align = 'center', stroke = 6) {
 }
 function coinAt(sp, x, y, r, spin = 1, sy = 1) { g.save(); g.translate(x, y + r * (1 - sy)); g.scale(Math.max(.04, Math.abs(spin)), sy); g.drawImage(sp, -r, -r, r * 2, r * 2); g.restore(); }
 
+const easeBack = t => { const c = 1.7; return 1 + (c + 1) * (t - 1) ** 3 + c * (t - 1) ** 2; };
+const heroR = j => 190 + j.tier * 14;
+// блик, пробегающий по монете (u от 0 до 1; вне этого диапазона не рисуется)
+function glint(x, y, r, u, a = .55) {
+  if (!(u > 0 && u < 1)) return;
+  g.save(); g.beginPath(); g.arc(x, y, r, 0, TAU); g.clip(); g.translate(x, y); g.rotate(-.6);
+  const bx = lerp(-r * 1.6, r * 1.6, u), gr = g.createLinearGradient(bx - r * .35, 0, bx + r * .35, 0);
+  gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(.5, `rgba(255,255,255,${a})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.globalCompositeOperation = 'lighter'; g.fillStyle = gr; g.fillRect(-r * 2, -r * 2, r * 4, r * 4); g.restore();
+}
+function star(x, y, sz, a, c = '#fff') {
+  if (a <= .01) return;
+  g.save(); g.globalAlpha = Math.min(1, a); g.globalCompositeOperation = 'lighter'; g.fillStyle = c; g.translate(x, y); g.beginPath();
+  for (let i = 0; i < 8; i++) { const r = i % 2 ? sz * .22 : sz, q = i / 8 * TAU; g.lineTo(Math.cos(q) * r, Math.sin(q) * r); }
+  g.fill(); g.restore();
+}
+function halo(x, y, r, color, a) {
+  if (a <= .01) return;
+  g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = Math.min(1, a);
+  const gr = g.createRadialGradient(x, y, r * .15, x, y, r); gr.addColorStop(0, color); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); g.restore();
+}
+// монета вращается, видно ребро
+function spinCoin(sp, ti, x, y, r, ang) {
+  const s = Math.cos(ang), e = Math.sin(ang) * r * .09;
+  g.fillStyle = TIERS[ti].c[2]; g.beginPath(); g.ellipse(x + e, y, Math.max(2, Math.abs(s) * r), r * .985, 0, 0, TAU); g.fill();
+  coinAt(sp, x, y, r, s);
+}
+function rays(x, y, r0, len, n, cols, rot, a) {
+  if (len <= 1 || a <= .01) return;
+  g.save(); g.translate(x, y); g.rotate(rot); g.globalCompositeOperation = 'lighter'; g.globalAlpha = a;
+  for (let i = 0; i < n; i++) {
+    const gr = g.createLinearGradient(0, r0, 0, r0 + len); gr.addColorStop(0, cols[i % cols.length]); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(-10, r0); g.lineTo(-30 - len * .14, r0 + len); g.lineTo(30 + len * .14, r0 + len); g.lineTo(10, r0); g.fill(); g.rotate(TAU / n);
+  }
+  g.restore();
+}
+function drawRings() {
+  for (const q of rings) { if (q.t < 0) continue; const k = q.t / q.d; g.save(); g.globalAlpha = (1 - k) * .9; g.globalCompositeOperation = 'lighter'; g.strokeStyle = q.color; g.lineWidth = q.w * (1 - k) + 1; g.beginPath(); g.arc(q.x, q.y, lerp(10, q.r1, easeOut(k)), 0, TAU); g.stroke(); g.restore(); }
+}
+function drawTwinkles() { for (const q of twinkles) star(q.x, q.y, q.s * Math.sin(q.t / q.d * Math.PI), Math.sin(q.t / q.d * Math.PI), q.c); }
+function drawLevelRays() { if (lvlT > 0) rays(L.cx, L.pileY, 30, 640 * easeOut(clamp((1.6 - lvlT) / .4)), 18, ['#fff1a8', '#ffb12b'], time * .6, .45 * clamp(lvlT / .6)); }
+
 let giftIcons = [];
 function drawLegend() {
   const n = TIERS.length, w = Math.min(W - 40, 980), x0 = L.cx - w / 2, y = L.legendY, h = 104, cell = w / n;
@@ -345,7 +406,7 @@ function drawLegend() {
     if (ic && ic.complete && ic.naturalWidth) g.drawImage(ic, cx - 74, y - 34, 68, 68);
     else txt(t.emoji, cx - 40, y + 2, 46, '#fff', 'center', 0);
     txt('›', cx + 2, y - 3, 34, '#d9b77a', 'center', 0);
-    coinAt(blankCoin(i), cx + 44, y + wob, 31);
+    coinAt(blankCoin(i), cx + 44, y + wob, 31); glint(cx + 44, y + wob, 30, ((time * .3 + i * .2) % 1) / .3);
   });
 }
 function drawWall() {
@@ -356,9 +417,12 @@ function drawWall() {
     const cx = x0 + gap * (i + .5), it = wall[i], len = 56;
     if (!it) { g.fillStyle = 'rgba(255,240,200,.14)'; g.beginPath(); g.arc(cx, y + len + 52, 50, 0, TAU); g.fill(); continue; }
     const age = (performance.now() - it.at) / 1000, drop = -(1 - easeOut(clamp(age / .5))) * 230;
-    const sw = Math.sin(time * 6 + i) * it.swing * .42, hx = cx + Math.sin(sw) * len, hy = y + Math.cos(sw) * len + drop;
+    const sw = Math.sin(time * 6 + i) * it.swing * .42 + Math.sin(time * 1.3 + i * 1.1) * .05, hx = cx + Math.sin(sw) * len, hy = y + Math.cos(sw) * len + drop;
     g.lineWidth = 4; g.strokeStyle = '#d6b36a'; g.beginPath(); g.moveTo(cx, y); g.lineTo(hx, hy); g.stroke();
+    if (i === 0) halo(hx, hy + 46, 120, TIERS[it.tier].c[1], .3 + .12 * Math.sin(time * 3));
     g.drawImage(it.sprite, hx - 56, hy - 10, 112, 112);
+    glint(hx, hy + 46, 54, ((time * .22 + i * .37) % 1) / .25, .5);
+    if (age < .9) for (let k = 0; k < 5; k++) { const q = k / 5 * TAU + age * 3; star(hx + Math.cos(q) * 70 * easeOut(age / .9), hy + 46 + Math.sin(q) * 70 * easeOut(age / .9), 12, 1 - age / .9, TIERS[it.tier].c[0]); }
     txt(shortName(it.user, 8), hx, hy + 122, 21, TIERS[it.tier].c[0], 'center', 5);
   }
 }
@@ -410,33 +474,47 @@ function drawPress() {
 }
 function drawJob() {
   const j = job; if (!j) return;
-  const a = L.anvil, cx = L.cx, u = clamp(j.t / j.dur[j.ph]);
-  if (j.ph <= 1) { coinAt(blankCoin(j.tier), j.ph === 0 ? lerp(-60, cx, easeOut(u)) : cx, a - 26, 76); }
-  else if (j.ph <= 3) {
-    if (j.ph === 2) coinAt(j.sprite, cx, a - 26, 82, 1, .72 + .28 * u * u);
-    else if (j.ph === 3) coinAt(j.sprite, cx, a - 26, 82, 1, 1 + .1 * Math.sin(u * Math.PI));
-    else coinAt(j.sprite, cx, a - 26, 82);
-  }
-  else if (j.ph === 4) { const e = easeOut(u); coinAt(j.sprite, cx, lerp(a - 26, L.heroY, e), lerp(82, 190 + j.tier * 12, e), Math.cos(u * TAU * 2)); }
-  else if (j.ph === 5) {
-    const r = 190 + j.tier * 12;
-    if (j.tier >= 1) { g.save(); g.translate(cx, L.heroY); g.rotate(time * .55); g.globalAlpha = .18 + j.tier * .06; g.fillStyle = TIERS[j.tier].c[0]; for (let i = 0; i < 12; i++) { g.rotate(TAU / 12); g.beginPath(); g.moveTo(0, 0); g.lineTo(-54, r + 170); g.lineTo(54, r + 170); g.fill(); } g.restore(); }
-    coinAt(j.sprite, cx, L.heroY + Math.sin(time * 4) * 7, r);
-    const pw = 500, py = L.heroY + r + 36;
-    rr(cx - pw / 2, py - 34, pw, 68, 34); g.fillStyle = 'rgba(21,12,14,.88)'; g.fill(); g.lineWidth = 4; g.strokeStyle = TIERS[j.tier].c[1]; g.stroke();
-    txt(shortName(j.user, 15), cx, py + 2, 38, '#fff5df', 'center', 0);
-    if (j.count > 1) txt('×' + j.count, cx + r * .72, L.heroY - r * .72, 76, TIERS[j.tier].c[0]);
+  const a = L.anvil, cx = L.cx, u = clamp(j.t / j.dur[j.ph]), t = TIERS[j.tier];
+  if (j.ph === 0) { const x = lerp(-80, cx, easeOut(u)); g.save(); g.translate(x, a - 26); g.rotate((x - cx) / 76); g.drawImage(blankCoin(j.tier), -76, -76, 152, 152); g.restore(); }
+  else if (j.ph === 1) coinAt(blankCoin(j.tier), cx, a - 26, 76);
+  else if (j.ph === 2) coinAt(j.sprite, cx, a - 26, 82, 1, .72 + .28 * u * u);
+  else if (j.ph === 3) { coinAt(j.sprite, cx, a - 26, 82, 1, 1 + .1 * Math.sin(u * Math.PI)); glint(cx, a - 26, 80, u); }
+  else if (j.ph === 4) {
+    const r = lerp(82, heroR(j), easeBack(u)), y = lerp(a - 26, L.heroY, easeOut(u));
+    if (j.tier >= 2) halo(cx, y, r * 2.2, t.c[1], u * .6);
+    spinCoin(j.sprite, j.tier, cx, y, r, u * TAU * (j.tier >= 3 ? 3 : 2));
+  } else if (j.ph === 5) {
+    const r = heroR(j), y = L.heroY + Math.sin(time * 3) * 8, tt = j.t, intro = easeBack(clamp(tt / .35));
+    if (j.tier >= 1) {
+      const len = (150 + j.tier * 95) * intro, n = j.tier === 4 ? 18 : 10 + j.tier * 2, al = .14 + j.tier * .07;
+      const cols = j.tier === 4 ? ['#ffffff', '#7ff3ff', '#ff9cf0', '#fff59a', '#9cffb3'] : [t.c[0], t.c[1]];
+      rays(cx, L.heroY, r * .55, len, n, cols, time * .35, al);
+      if (j.tier >= 3) rays(cx, L.heroY, r * .45, len * .7, n, cols.slice().reverse(), -time * .5, al * .8);
+    }
+    halo(cx, y, r * (1.8 + j.tier * .25), t.c[1], .3 + j.tier * .1);
+    coinAt(j.sprite, cx, y, r);
+    glint(cx, y, r * .97, (tt % 1.5) / .7, .5);
+    const ns = 4 + j.tier * 2;
+    for (let i = 0; i < ns; i++) { const q = i / ns * TAU + time * .4, d = r * (1.14 + .08 * Math.sin(time * 2 + i)); star(cx + Math.cos(q) * d, y + Math.sin(q) * d, 12 + j.tier * 4, Math.max(0, Math.sin(time * 4 + i * 1.7)) * intro, i % 2 ? '#ffffff' : t.c[0]); }
+    const ps = easeBack(clamp((tt - .08) / .3));
+    if (ps > 0) { g.save(); g.translate(cx, L.heroY + r + 40); g.scale(ps, ps); const pw = 500; rr(-pw / 2, -34, pw, 68, 34); g.fillStyle = 'rgba(21,12,14,.9)'; g.fill(); g.lineWidth = 4; g.strokeStyle = t.c[1]; g.stroke(); txt(shortName(j.user, 15), 0, 2, 38, j.tier >= 3 ? t.c[0] : '#fff5df', 'center', 0); g.restore(); }
+    if (j.count > 1) { const cs = easeBack(clamp((tt - .2) / .3)); if (cs > 0) { g.save(); g.translate(cx + r * .74, L.heroY - r * .74); g.rotate(-.18); g.scale(cs, cs); txt('×' + j.count, 0, 0, 80, t.c[0], 'center', 8); g.restore(); } }
   } else if (j.ph === 6) {
-    const e = easeIn(u), tx = j.slot.x, ty = j.slot.y, r0 = 190 + j.tier * 12;
-    coinAt(j.sprite, lerp(cx, tx, e), lerp(L.heroY, ty, e) - Math.sin(u * Math.PI) * 70, lerp(r0, 44, e), Math.cos(u * TAU * 1.5));
+    const r0 = heroR(j), tx = j.slot.x, ty = j.slot.y;
+    const pos = v => { const e = easeIn(v); return [lerp(cx, tx, e), lerp(L.heroY, ty, e) - Math.sin(v * Math.PI) * 90, lerp(r0, 44, e)]; };
+    for (let k = 4; k >= 1; k--) { const v = u - k * .05; if (v <= 0) continue; const p = pos(v); g.globalAlpha = .12 * (5 - k) / 4; coinAt(j.sprite, p[0], p[1], p[2]); }
+    g.globalAlpha = 1; const p = pos(u); spinCoin(j.sprite, j.tier, p[0], p[1], p[2], u * TAU * 1.5);
   }
 }
 function drawQueue() {
-  const x0 = 28, y0 = L.queueTop, st = 90, shown = Math.min(queue.length, 6);
+  const x0 = 28, y0 = L.queueTop, st = 90, shown = Math.min(queue.length, 6), now = performance.now();
   for (let i = 0; i < shown; i++) {
-    const j = queue[i], col = i % 2, row = i >> 1, x = x0 + 44 + col * st, y = y0 + 44 + row * st;
-    g.save(); g.fillStyle = TIERS[j.tier].c[1]; g.beginPath(); g.arc(x, y, 43, 0, TAU); g.fill();
-    g.drawImage(thumb(avatarOf(j)), x - 37, y - 37, 74, 74); g.restore();
+    const j = queue[i], col = i % 2, row = i >> 1, x = x0 + 44 + col * st, y = y0 + 44 + row * st + Math.sin(time * 2.5 + i) * 3;
+    const ps = easeBack(clamp((now - j.at) / 350));
+    if (i === 0) { g.save(); g.globalAlpha = .55 + .45 * Math.sin(time * 5); g.strokeStyle = TIERS[j.tier].c[0]; g.lineWidth = 4; g.beginPath(); g.arc(x, y, 49 + 2 * Math.sin(time * 5), 0, TAU); g.stroke(); g.restore(); }
+    g.save(); g.translate(x, y); g.scale(ps, ps);
+    g.fillStyle = TIERS[j.tier].c[1]; g.beginPath(); g.arc(0, 0, 43, 0, TAU); g.fill();
+    g.drawImage(thumb(avatarOf(j)), -37, -37, 74, 74); g.restore();
   }
   if (queue.length) txt('+' + queue.length, x0 + 88, y0 - 16, 42, '#fff1a8');
 }
@@ -444,9 +522,10 @@ function drawTop() {
   const x = W - 28, y0 = L.queueTop, colors = [TIERS[2].c[1], TIERS[1].c[1], TIERS[0].c[1]];
   topDonors.forEach((d, i) => {
     const y = y0 + 34 + i * 112, a = avatars.get(d.uid);
+    if (i === 0) halo(x - 46, y, 100, TIERS[2].c[1], .3 + .1 * Math.sin(time * 2.6));
     g.fillStyle = colors[i]; g.beginPath(); g.arc(x - 46, y, 46, 0, TAU); g.fill();
     if (a) g.drawImage(thumb(a), x - 86, y - 40, 80, 80);
-    if (i === 0) txt('👑', x - 46, y - 56, 40, '#fff', 'center', 0);
+    if (i === 0) { txt('👑', x - 46, y - 58 + Math.sin(time * 2.4) * 5, 40, '#fff', 'center', 0); glint(x - 46, y, 40, ((time * .25) % 1) / .3, .45); }
     txt(String(d.sum), x - 46, y + 50, 26, '#fff5df');
   });
 }
@@ -485,6 +564,7 @@ function drawIdle() {
   if (job || queue.length) return;
   const y = L.heroY, b = Math.sin(time * 3), t = TIERS[0];
   g.globalAlpha = .9;
+  halo(L.cx + 110, y, 260, TIERS[0].c[1], .25 + .1 * Math.sin(time * 2));
   coinAt(blankCoin(0), L.cx + 110, y, 130, Math.cos(time * 1.4));
   txt('?', L.cx + 110, y + 4, 110, '#fff5df');
   g.globalAlpha = 1;
@@ -503,12 +583,14 @@ function draw() {
   g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
   g.save();
   if (shake && !reduced) g.translate(rand(-shake, shake), rand(-shake, shake));
-  drawLegend(); drawWall(); drawPress(); drawChest(); drawQueue(); drawTop();
+  drawLegend(); drawWall(); drawPress(); drawLevelRays(); drawChest(); drawTwinkles(); drawQueue(); drawTop();
+  if (cine > .01) { g.fillStyle = `rgba(6,3,9,${cine})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120); }
   for (const f of flyers) { if (f.t < 0) continue; const u = clamp(f.t / f.d); g.save(); g.translate(lerp(f.x, f.tx, u), lerp(f.y, f.ty, u * u) - Math.sin(u * Math.PI) * 120); g.rotate(f.a + u * 8); g.drawImage(f.sprite, -f.r, -f.r, f.r * 2, f.r * 2); g.restore(); }
   drawIdle(); drawJob();
   for (const p of tiny) { g.save(); g.translate(p.x, p.y); g.rotate(p.a); g.drawImage(p.sprite, -p.r, -p.r, p.r * 2, p.r * 2); g.restore(); }
   for (const p of parts) { g.globalAlpha = clamp(p.life / .4); g.fillStyle = p.c; g.fillRect(p.x, p.y, p.size, p.size); }
   g.globalAlpha = 1;
+  drawRings();
   g.restore();
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (flash) { g.globalAlpha = flash * .7; g.fillStyle = flashColor; g.fillRect(0, 0, SCW, SCH); g.globalAlpha = 1; }
