@@ -17,13 +17,19 @@ const TIERS = [
 ];
 const tierOf = coins => { let n = 0; TIERS.forEach((t, i) => { if (coins >= t.min) n = i; }); return n; };
 const GOALS = [100, 300, 700, 1500, 3000, 6000, 10000];
+// Комбо: подарки одного зрителя с паузой не больше COMBO.gap мс; на ×5 монета на ступень дороже, на ×10 ещё на ступень
+const COMBO = { gap: 20000, max: 10, steps: [5, 10] };
+// Бесплатные монеты: за каждые LIKES.step лайков от одного зрителя и за первую подписку в эфире. Двигают полосу на +1
+const LIKES = { step: 500, odds: [.50, .35, .15] };          // бронза / серебро / золото
+const FOLLOW = { odds: [0, .60, .35, .05] };                  // серебро / золото / рубин
+const pickTier = odds => { let r = Math.random(); for (let i = 0; i < odds.length; i++) { if ((r -= odds[i]) < 0) return i; } return odds.length - 1; };
 const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
 const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 7;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 8;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -93,7 +99,7 @@ function thumb(a) {
 }
 
 // Монета: рамка своего металла, внутри аватарка
-function makeCoin(a, ti) {
+function makeCoin(a, ti, free) {
   const S = 320, c = document.createElement('canvas'); c.width = c.height = S;
   const x = c.getContext('2d'), t = TIERS[ti], R = S / 2, frame = art['coin_' + t.id];
   if (!frame) {
@@ -114,6 +120,8 @@ function makeCoin(a, ti) {
   x.fillStyle = gl; x.fillRect(0, 0, S, S);
   x.restore();
   if (frame) x.drawImage(frame, 0, 0, S, S);
+  if (free) { x.fillStyle = '#d81e45'; x.beginPath(); x.arc(S * .8, S * .8, 40, 0, TAU); x.fill(); x.lineWidth = 6; x.strokeStyle = '#fff'; x.stroke();
+    x.fillStyle = '#fff'; x.font = `900 44px ${FONT}`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('♥', S * .8, S * .8 + 3); }
   return c;
 }
 const blanks = TIERS.map(() => null);
@@ -135,25 +143,46 @@ const donors = new Map(); let topDonors = [];
 let build = null, burstHold = 0, pileLevel = 0, lvlBadge = 0, cine = 0, lvlT = 0, hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+const combos = new Map(), likeAcc = new Map(), followed = new Set(), ownerWins = new Map();
+let owner = null, lastLander = null;
 function addGift(m) {
-  const coins = Math.max(1, +m.coins || 1), count = Math.max(1, +m.count || 1);
-  const j = { user: String(m.user || 'Viewer'), uid: String(m.uid || m.user || 'v'), pic: m.pic || '', coins, count, tier: tierOf(coins), at: performance.now() };
+  const coins = Math.max(1, +m.coins || 1), count = Math.max(1, +m.count || 1), free = !!m.free, now = performance.now();
+  const uid = String(m.uid || m.user || 'v');
+  let tier = m.tier ?? tierOf(coins), base = tier, combo = 0;
+  if (!free) {
+    const c = combos.get(uid); combo = c && now - c.last <= COMBO.gap ? Math.min(COMBO.max, c.n + 1) : 1;
+    combos.set(uid, { n: combo, last: now });
+    tier = Math.min(4, tier + COMBO.steps.filter(s => combo >= s).length);
+  }
+  const j = { user: String(m.user || 'Viewer'), uid, pic: m.pic || '', coins, count, tier, base, combo, free, src: m.src || '', value: free ? 1 : coins * count, at: now };
   avatarOf(j);
   queue.push(j); dirty = true;
+  if (free) return;
   const d = donors.get(j.uid) || { user: j.user, uid: j.uid, pic: j.pic, sum: 0 };
   d.sum += coins * count; d.user = j.user; if (j.pic) d.pic = j.pic;
   donors.set(j.uid, d);
   topDonors = [...donors.values()].sort((a, b) => b.sum - a.sum).slice(0, 3);
 }
+function freeCoin(m, src, tier) { addGift({ user: m.user, uid: m.uid || m.user, pic: m.pic, coins: 1, count: 1, free: true, tier, src }); }
+function onLikeUser(m) {
+  if (!m.uid && !m.user) return;
+  const uid = String(m.uid || m.user), n = (likeAcc.get(uid) || 0) + (+m.count || 1);
+  likeAcc.set(uid, n % LIKES.step);
+  for (let k = 0; k < Math.floor(n / LIKES.step) && k < 3; k++) freeCoin(m, 'like', pickTier(LIKES.odds));
+}
+function onFollow(m) {
+  const uid = String(m.uid || m.user || ''); if (!uid || followed.has(uid)) return;   // только первая подписка за эфир
+  followed.add(uid); freeCoin(m, 'follow', pickTier(FOLLOW.odds));
+}
 // Дорогие подарки идут раньше, но ожидание тоже поднимает зрителя: 20 секунд = одна ступень
-function score(j, now) { return j.tier + (now - j.at) / 20000; }
+function score(j, now) { return (j.free ? -5 : j.tier) + (now - j.at) / 20000; }   // бесплатные идут после платных
 function sortQueue() { const now = performance.now(); queue.sort((a, b) => score(b, now) - score(a, now)); dirty = false; }
 
 function startNext() {
   if (!queue.length || build || burstHold > 0 || value >= curGoal()) return;
   sortQueue();
   const j = queue.shift();
-  j.avatar = avatarOf(j); j.sprite = makeCoin(j.avatar, j.tier); j.v = j.avatar.v;
+  j.avatar = avatarOf(j); j.sprite = makeCoin(j.avatar, j.tier, j.free); j.v = j.avatar.v;
   j.ph = 0; j.t = 0; j.dur = [.42, .15, .1, .22, .3 + j.tier * .08, .6 + j.tier * .45, .42];
   const q = queue.length;
   const slow = lerp(TEMPO, 1, clamp((q - 2) / 20));   // чем длиннее очередь, тем меньше замедление
@@ -167,7 +196,7 @@ function nextPhase() {
   if (j.ph === 2) strike(j);
   if (j.ph === 5) heroStart(j);
   if (j.ph === 5) { sfx('ta', j.tier); if (j.tier >= 2) burst(L.cx, L.heroY, TIERS[j.tier], TIERS[j.tier].burst, 700); if (j.tier >= 3) { flash = j.tier === 4 ? .5 : .25; flashColor = TIERS[j.tier].c[1]; } }
-  if (j.ph === 6) { const lv = Math.min(1, (value + j.coins * j.count) / curGoal()); pourTo(lv, j.tier, L.cx, L.heroY, Math.min(j.count - 1, 15)); j.slot = moundSlot(lv); }
+  if (j.ph === 6) { const lv = Math.min(1, (value + j.value) / curGoal()); pourTo(lv, j.tier, L.cx, L.heroY, Math.min(j.count - 1, 15)); j.slot = moundSlot(lv); }
   if (j.ph >= j.dur.length) land(j);
 }
 function strike(j) {
@@ -175,7 +204,7 @@ function strike(j) {
   shake = Math.max(shake, 12 + j.tier * 5); sfx('clank', j.tier);
   burst(L.cx, L.anvil - 30, TIERS[j.tier], 14 + j.tier * 6, 560);
   ring(L.cx, L.anvil + 30, 170 + j.tier * 30, '#ffffff', .35, 12);
-  if (j.avatar.v !== j.v) j.sprite = makeCoin(j.avatar, j.tier);
+  if (j.avatar.v !== j.v) j.sprite = makeCoin(j.avatar, j.tier, j.free);
 }
 function land(j) {
   for (const f of flyers) if (f.slot) { bake(f.sprite, f.slot); } flyers.length = 0;   // докидываем мелочь, чтобы монета зрителя легла сверху
@@ -185,7 +214,7 @@ function land(j) {
   spots.push({ x: j.slot.x, y: j.slot.y, tier: j.tier }); if (spots.length > 40) spots.shift();
   sprites.push({ s: j.sprite, tier: j.tier }); if (sprites.length > 30) sprites.shift();
   addWall(j); sfx('rope');
-  value += j.coins * j.count;
+  value += j.value; if (!j.free) lastLander = j;
   job = null;
 }
 function addWall(j) {
@@ -204,7 +233,10 @@ function pourTo(lv, maxTier, fx, fy, extra = 0) {
   }
   pileLevel = Math.max(pileLevel, lv);
 }
-function startBuild() { build = { t: 0, d: 1.25, next: 0 }; sfx('build'); }
+function startBuild() {
+  build = { t: 0, d: 1.25, next: 0 }; sfx('build');
+  if (lastLander) { const b = (ownerWins.get(lastLander.uid) || 0) + 1; ownerWins.set(lastLander.uid, b); owner = { uid: lastLander.uid, user: lastLander.user, b, at: performance.now() + 1300 }; }
+}
 // Сундук переполнен: дрожит, светится и взрывается фонтаном монет
 function doBurst() {
   value -= curGoal(); level++;
@@ -520,6 +552,19 @@ function drawJob() {
     for (let i = 0; i < ns; i++) { const q = i / ns * TAU + time * .4, d = r * (1.14 + .08 * Math.sin(time * 2 + i)); star(cx + Math.cos(q) * d, y + Math.sin(q) * d, 12 + j.tier * 4, Math.max(0, Math.sin(time * 4 + i * 1.7)) * intro, i % 2 ? '#ffffff' : t.c[0]); }
     const ps = easeBack(clamp((tt - .08) / .3));
     if (ps > 0) { g.save(); g.translate(cx, L.heroY + r + 40); g.scale(ps, ps); const pw = 500; rr(-pw / 2, -34, pw, 68, 34); g.fillStyle = 'rgba(21,12,14,.9)'; g.fill(); g.lineWidth = 4; g.strokeStyle = t.c[1]; g.stroke(); txt(shortName(j.user, 15), 0, 2, 38, j.tier >= 3 ? t.c[0] : '#fff5df', 'center', 0); g.restore(); }
+    if (j.combo >= 2) {   // комбо: 10 делений, на 5-м и 10-м монетки следующего металла
+      const cy = L.heroY + r + 104, sp = 38, cs = easeBack(clamp((tt - .15) / .3));
+      g.save(); g.translate(cx, cy); g.scale(cs, cs);
+      rr(-sp * 5 - 70, -26, sp * 10 + 100, 52, 26); g.fillStyle = 'rgba(21,12,14,.85)'; g.fill();
+      txt('×' + j.combo, -sp * 5 - 34, 1, 30, '#fff1a8', 'center', 0);
+      for (let k = 0; k < COMBO.max; k++) {
+        const x = (k - 4.5) * sp + 22, on = k < j.combo, mile = COMBO.steps.indexOf(k + 1);
+        if (mile >= 0) { g.globalAlpha = on ? 1 : .35; coinAt(blankCoin(Math.min(4, j.base + mile + 1)), x, 0, 15); g.globalAlpha = 1; if (on && k + 1 === j.combo) star(x, 0, 26, Math.abs(Math.sin(time * 5)), '#fff'); }
+        else { g.fillStyle = on ? t.c[0] : 'rgba(255,255,255,.18)'; g.beginPath(); g.arc(x, 0, 8, 0, TAU); g.fill(); }
+      }
+      g.restore();
+    }
+    if (j.free) txt(j.src === 'follow' ? '➕' : '👍', cx - r * .78, L.heroY - r * .7, 64, '#fff', 'center', 0);
     if (j.count > 1) { const cs = easeBack(clamp((tt - .2) / .3)); if (cs > 0) { g.save(); g.translate(cx + r * .74, L.heroY - r * .74); g.rotate(-.18); g.scale(cs, cs); txt('×' + j.count, 0, 0, 80, t.c[0], 'center', 8); g.restore(); } }
   } else if (j.ph === 6) {
     const r0 = heroR(j), tx = j.slot.x, ty = j.slot.y;
@@ -541,14 +586,31 @@ function drawQueue() {
   if (queue.length) txt('+' + queue.length, x0 + 88, y0 - 16, 42, '#fff1a8');
 }
 function drawTop() {
-  const x = W - 28, y0 = L.queueTop, colors = [TIERS[2].c[1], TIERS[1].c[1], TIERS[0].c[1]];
+  const cx = W - 76, y0 = L.queueTop, now = performance.now();
+  // хозяин сундука: чья монета взорвала сундук последней
+  if (owner && now >= owner.at) {
+    const a = avatars.get(owner.uid), age = (now - owner.at) / 1000, ps = easeBack(clamp(age / .4)), oy2 = y0 + 46;
+    halo(cx, oy2, 130, '#ffd36b', .35 + .12 * Math.sin(time * 2.6));
+    g.save(); g.translate(cx, oy2); g.scale(ps, ps);
+    g.fillStyle = '#e8b923'; g.beginPath(); g.arc(0, 0, 58, 0, TAU); g.fill(); g.lineWidth = 4; g.strokeStyle = '#fff1a8'; g.stroke();
+    if (a) g.drawImage(thumb(a), -50, -50, 100, 100);
+    g.restore();
+    glint(cx, oy2, 50, ((time * .25) % 1) / .3, .45);
+    txt('👑', cx, oy2 - 76 + Math.sin(time * 2.4) * 5 - (1 - easeOut(clamp(age / .55))) * 160, 54, '#fff', 'center', 0);
+    txt(shortName(owner.user, 9), cx, oy2 + 78, 22, '#fff1a8', 'center', 5);
+    txt('💥×' + owner.b, cx, oy2 + 106, 22, '#fff5df', 'center', 5);
+    if (age < 1.1) for (let k = 0; k < 8; k++) { const q = k / 8 * TAU + age * 2, d = 90 * easeOut(age / 1.1); star(cx + Math.cos(q) * d, oy2 + Math.sin(q) * d, 16, 1 - age / 1.1, '#fff1a8'); }
+  } else {
+    g.save(); g.globalAlpha = .35; g.setLineDash([8, 8]); g.lineWidth = 4; g.strokeStyle = '#fff1a8'; g.beginPath(); g.arc(cx, y0 + 46, 56, 0, TAU); g.stroke(); g.setLineDash([]);
+    txt('👑', cx, y0 - 30, 48, '#fff', 'center', 0); txt('?', cx, y0 + 48, 56, '#fff1a8', 'center', 0); g.restore();
+  }
+  // топ-3 дарителей эфира
+  const colors = [TIERS[2].c[1], TIERS[1].c[1], TIERS[0].c[1]];
   topDonors.forEach((d, i) => {
-    const y = y0 + 34 + i * 112, a = avatars.get(d.uid);
-    if (i === 0) halo(x - 46, y, 100, TIERS[2].c[1], .3 + .1 * Math.sin(time * 2.6));
-    g.fillStyle = colors[i]; g.beginPath(); g.arc(x - 46, y, 46, 0, TAU); g.fill();
-    if (a) g.drawImage(thumb(a), x - 86, y - 40, 80, 80);
-    if (i === 0) { txt('👑', x - 46, y - 58 + Math.sin(time * 2.4) * 5, 40, '#fff', 'center', 0); glint(x - 46, y, 40, ((time * .25) % 1) / .3, .45); }
-    txt(String(d.sum), x - 46, y + 50, 26, '#fff5df');
+    const y = y0 + 210 + i * 92, a = avatars.get(d.uid);
+    g.fillStyle = colors[i]; g.beginPath(); g.arc(cx, y, 36, 0, TAU); g.fill();
+    if (a) g.drawImage(thumb(a), cx - 31, y - 31, 62, 62);
+    txt(String(d.sum), cx, y + 42, 21, '#fff5df', 'center', 5);
   });
 }
 function drawChest() {
@@ -637,7 +699,7 @@ function loop(now) {
 
 // Лайки: мелкие искры над сундуком, без монет и без очков
 let likeGate = 0;
-function onLike() { const n = performance.now(); if (n < likeGate) return; likeGate = n + 220; burst(rand(L.cx - 260, L.cx + 260), L.pileY - 10, TIERS[3], 5, 240); }
+function onLike(m) { if (m) onLikeUser(m); const n = performance.now(); if (n < likeGate) return; likeGate = n + 220; burst(rand(L.cx - 260, L.cx + 260), L.pileY - 10, TIERS[3], 5, 240); }
 
 // Настоящие значки подарков из каталога TikTok, иначе остаются эмодзи
 function onCatalog(list) {
@@ -648,7 +710,7 @@ function onCatalog(list) {
     const im = new Image(); im.src = pick.img; return im;
   });
 }
-Live.connect({ onGift: addGift, onLike, onStatus: v => { connected = v; }, onCatalog });
+Live.connect({ onGift: addGift, onLike, onFollow, onStatus: v => { connected = v; }, onCatalog });
 Live.keepAwake();
 
 // Полноэкранный режим: кнопка сама исчезает, чтобы не попасть в эфир
@@ -674,12 +736,15 @@ if (Live.testMode) {
   btn('+20', () => { for (let i = 0; i < 20; i++) botGift(); });
   btn('🤖', b => { bots = !bots; b.setAttribute('aria-pressed', bots); }).setAttribute('aria-pressed', 'false');
   btn('♥', () => onLike());
+  btn('👍', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))]; onLike({ user: n, uid: n, count: LIKES.step }); });
+  btn('➕', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))] + ' ' + Math.floor(rand(100, 999)); onFollow({ user: n, uid: n }); });
+  btn('×5', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))]; for (let i = 0; i < 6; i++) addGift({ user: n, uid: n, coins: 1, count: 1 }); });
   btn('🔊', b => { mute = !mute; b.textContent = mute ? '🔇' : '🔊'; });
   botTick();
   bots = true; pn.querySelector('button:nth-of-type(8)').setAttribute('aria-pressed', 'true');
 }
 
-window.__mint = { sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, stat: () => ({ fps, queue: queue.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
+window.__mint = { onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, stat: () => ({ fps, queue: queue.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
 resize();
 requestAnimationFrame(loop);
 })();
