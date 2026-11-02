@@ -378,6 +378,8 @@ function drawChest() {
   if (L.art) {
     const a = L.art, base = a.y + a.h, k = 1 + kick * .004;
     g.save(); g.translate(cx, base); g.scale(k, 2 - k); g.translate(-cx, -base);
+    g.save(); g.globalAlpha = .55; g.fillStyle = '#000'; g.filter = 'blur(10px)';   // тень на полу, чтобы сундук не висел
+    g.beginPath(); g.ellipse(cx + 8, base - 8, a.w * .52, 34, 0, 0, TAU); g.fill(); g.restore();
     g.drawImage(art.chest_back, a.x, a.y, a.w, a.h);
     g.drawImage(mound, cx - MW / 2, L.mBase - MH);
     g.drawImage(art.chest_front, a.x, a.fy, a.w, a.fh);
