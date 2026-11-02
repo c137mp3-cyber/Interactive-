@@ -1,0 +1,9 @@
+{
+  "name": "interactive-live",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "tiktok-live-connector": "*",
+    "ws": "*"
+  }
+}
