@@ -21,8 +21,9 @@ const GOALS = [100, 300, 700, 1500, 3000, 6000, 10000];
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall',
   ...TIERS.map(t => 'coin_' + t.id)];
+const BUILD = 4;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
-ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png'; });
+ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
 // Экран: заполняем его целиком, без чёрных полос
 const W = 1080, H = 1400;          // сцена: все координаты считаются в ней
@@ -341,23 +342,29 @@ function drawWall() {
   }
 }
 function drawPressArt() {
-  const cx = L.cx, a = L.anvil, fr = art.press_frame, an = art.anvil, ph = art.press_head, F = FRAME, sf = F.s;
-  const aw = an.width * ANVIL.s, ah = an.height * ANVIL.s, ax = cx - ANVIL.fx * ANVIL.s, ay = a + 8 - ANVIL.fy * ANVIL.s + anvilKick * 7;
-  const hole = F.hole, fx = cx - (hole[0] + hole[2]) / 2 * sf, fy = ay + 22 - hole[3] * sf, beamBottom = fy + hole[1] * sf;
+  const cx = L.cx, a = L.anvil, fr = art.press_frame, ph = art.press_head, F = FRAME, sf = F.s, hole = F.hole;
+  // Наковальни нет: монета лежит на железной плите, настеленной на основание рамы
+  const plankTop = a + 66, fx = cx - (hole[0] + hole[2]) / 2 * sf, fy = plankTop - hole[3] * sf, beamBottom = fy + hole[1] * sf;
+  const px0 = fx + hole[0] * sf, px1 = fx + hole[2] * sf;
   // лента подачи
-  g.fillStyle = '#231b20'; rr(0, a + 8, cx - 100, 22, 4); g.fill();
+  g.fillStyle = '#231b20'; rr(0, plankTop - 16, px0 + 4, 20, 4); g.fill();
   g.fillStyle = '#5b4a3d'; const off = (job && job.ph === 0 ? time * 240 : 0) % 44;
-  for (let x = -44 + off; x < cx - 110; x += 44) g.fillRect(x, a + 12, 22, 14);
+  for (let x = -44 + off; x < px0 - 8; x += 44) g.fillRect(x, plankTop - 12, 22, 12);
   // штанга и головка: за рамой, верхняя часть прячется за балкой
   const hw = 125, hh = hw * ph.height / ph.width, hb = lerp(beamBottom + 40, a - 106, pressY), rx = cx - 16;
   g.fillStyle = '#6f6c76'; g.fillRect(rx, fy, 32, Math.max(0, hb - hh - fy));
   g.fillStyle = 'rgba(255,255,255,.14)'; g.fillRect(rx + 6, fy, 6, Math.max(0, hb - hh - fy));
   g.drawImage(ph, cx - hw / 2, hb - hh, hw, hh);
   g.drawImage(fr, fx, fy, F.w * sf, F.h * sf);
-  g.drawImage(an, ax, ay, aw, ah);
+  // железная плита
+  const ty = plankTop - 20 + anvilKick * 4, pw = px1 - px0 + 14;
+  rr(px0 - 7, ty, pw, 26, 5); const m = g.createLinearGradient(0, ty, 0, ty + 26); m.addColorStop(0, '#b7b4bd'); m.addColorStop(.25, '#85828c'); m.addColorStop(1, '#3d3a44');
+  g.fillStyle = m; g.fill(); g.lineWidth = 3; g.strokeStyle = '#1d1a22'; g.stroke();
+  g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(px0 + 2, ty + 3, pw - 18, 2);
+  g.fillStyle = '#c9a65a'; [px0 + 6, px1 - 6].forEach(x => { g.beginPath(); g.arc(x, ty + 15, 3.2, 0, TAU); g.fill(); });
 }
 function drawPress() {
-  if (art.press_frame && art.anvil && art.press_head) return drawPressArt();
+  if (art.press_frame && art.press_head) return drawPressArt();
   const cx = L.cx, a = L.anvil, top = L.pressTop, hw = 170;
   // наковальня
   rr(cx - 150, a + 8, 300, 34, 8); g.fillStyle = '#3f3a44'; g.fill();
