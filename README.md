@@ -36,6 +36,8 @@ npm install
 | от 100 | рубин |
 | от 500 | бриллиант |
 
+Игра занимает середину экрана (между шапкой и чатом TikTok). Границы зоны: `SAFE` в `games/mint/game.js`.
+
 Цены и цели сундука меняются в начале `games/mint/game.js`: `TIERS` и `GOALS`.
 
 Своя графика: см. `games/mint/ASSETS.md`.
