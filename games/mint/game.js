@@ -31,7 +31,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 11;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 12;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -404,7 +404,7 @@ function update(dt) {
 }
 
 // Печь: мерцание света и искры, привязаны к картинке фона
-const FIRE = { x: 140, y: 745 };   // где в bg.png горит огонь
+const FIRE = { x: 112, y: 740 };   // где в bg.png горит огонь
 function fireAt() {
   const b = art.bg; if (!b) return null;
   const s = Math.max(SCW / b.width, SCH / b.height);
@@ -563,22 +563,32 @@ function drawWall() {
     txt(shortName(it.user, 8), hx, hy + 122, 21, TIERS[t].c[0], 'center', 5);
   }
 }
-let beltScroll = 0, beltJob = null, beltLast = -80;
+let beltScroll = 0, beltJob = null, beltLast = 0;
+const easeSine = t => -(Math.cos(Math.PI * t) - 1) / 2;
+// где в сценe начинается лента: на проёме арки слева в bg.png
+function beltStartX() {
+  const b = art.bg, s = b ? Math.max(SCW / b.width, SCH / b.height) : 1;
+  const sx = b ? SCW / 2 - b.width * s / 2 + 105 * s : 120;
+  return (sx - ox) / scale;
+}
 function drawPressArt() {
   const cx = L.cx, a = L.anvil, fr = art.press_frame, ph = art.press_head, F = FRAME, sf = F.s, hole = F.hole;
   // Наковальни нет: монета лежит на железной плите, настеленной на основание рамы
   const plankTop = a + 66, fx = cx - (hole[0] + hole[2]) / 2 * sf, fy = plankTop - hole[3] * sf, beamBottom = fy + hole[1] * sf;
   const px0 = fx + hole[0] * sf, px1 = fx + hole[2] * sf;
-  // лента подачи: нарисованная лента едет вместе с монетой
+  // лента подачи: выезжает из проёма слева, едет вправо вместе с монетой
   if (art.belt) {
+    const bx0 = beltStartX();
     if (job && job.ph === 0) {
-      const x = lerp(-80, cx, easeOut(clamp(job.t / job.dur[0])));
-      if (job !== beltJob) { beltJob = job; beltLast = -80; }
+      const x = lerp(bx0 + 30, cx, easeSine(clamp(job.t / job.dur[0])));
+      if (job !== beltJob) { beltJob = job; beltLast = x; }
       beltScroll += Math.max(0, x - beltLast); beltLast = x;
     }
     const bs = .7, bw = art.belt.width * bs, bh = art.belt.height * bs, by = plankTop - 18, off = beltScroll % bw;
-    g.save(); g.beginPath(); g.rect(0, by - 4, px0 + 4, bh + 8); g.clip();
-    for (let x = -off; x < px0 + 4; x += bw) g.drawImage(art.belt, x, by, bw + 1, bh);
+    g.save(); g.beginPath(); g.rect(bx0, by - 4, px0 + 4 - bx0, bh + 8); g.clip();
+    for (let x = off - bw; x < px0 + 4; x += bw) g.drawImage(art.belt, x, by, bw + 1, bh);
+    const fd = g.createLinearGradient(bx0, 0, bx0 + 130, 0); fd.addColorStop(0, 'rgba(14,6,5,.96)'); fd.addColorStop(1, 'rgba(14,6,5,0)');
+    g.fillStyle = fd; g.fillRect(bx0, by - 4, 130, bh + 8);
     g.restore();
   } else {
     g.fillStyle = '#231b20'; rr(0, plankTop - 16, px0 + 4, 20, 4); g.fill();
@@ -625,7 +635,7 @@ function drawPress() {
 function drawJob() {
   const j = job; if (!j) return;
   const a = L.anvil, cx = L.cx, u = clamp(j.t / j.dur[j.ph]), t = TIERS[j.tier];
-  if (j.ph === 0) { const x = lerp(-80, cx, easeOut(u)); g.save(); g.translate(x, a - 26); g.rotate((x - cx) / 76); g.drawImage(blankCoin(j.tier), -76, -76, 152, 152); g.restore(); }
+  if (j.ph === 0) { const x = lerp(beltStartX() + 30, cx, easeSine(u)); g.save(); g.globalAlpha = clamp(u * 6); g.translate(x, a - 26); g.drawImage(blankCoin(j.tier), -76, -76, 152, 152); g.restore(); }
   else if (j.ph === 1) coinAt(blankCoin(j.tier), cx, a - 26, 76);
   else if (j.ph === 2) coinAt(j.sprite, cx, a - 26, 82, 1, .72 + .28 * u * u);
   else if (j.ph === 3) { coinAt(j.sprite, cx, a - 26, 82, 1, 1 + .1 * Math.sin(u * Math.PI)); glint(cx, a - 26, 80, u); }
@@ -757,7 +767,7 @@ function draw() {
   if (art.bg) {
     const s = Math.max(SCW / art.bg.width, SCH / art.bg.height);
     g.drawImage(art.bg, SCW / 2 - art.bg.width * s / 2, SCH / 2 - art.bg.height * s / 2, art.bg.width * s, art.bg.height * s);
-    g.fillStyle = 'rgba(12,6,10,.30)'; g.fillRect(0, 0, SCW, SCH);   // затемнение, чтобы монеты и ники читались
+    g.fillStyle = 'rgba(12,6,10,.10)'; g.fillRect(0, 0, SCW, SCH);   // затемнение, чтобы монеты и ники читались
   } else { if (!bg) buildBg(); g.drawImage(bg, 0, 0, SCW, SCH); }
   drawFire();
   g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
