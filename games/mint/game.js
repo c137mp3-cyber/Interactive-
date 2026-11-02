@@ -29,9 +29,9 @@ const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
 const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
-const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope',
+const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 12;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 13;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -55,7 +55,7 @@ function resize() {
   L.cx = W / 2;
   L.legendY = 70; L.rope = 170; L.heroY = 575; L.anvil = 770; L.pressTop = L.anvil - 370; L.queueTop = 420;
   L.chestTop = 1060; L.chestBot = Math.min(1390, L.chestTop + 330);
-  bg = null; layoutChest(); if (!mound) initMound();
+  bg = null; vig = null; layoutChest(); if (!mound) initMound();
 }
 // Сундук: с картинкой (задняя часть + передняя стенка) или нарисованный кодом
 function layoutChest() {
@@ -226,12 +226,12 @@ function score(j, now) { return (j.free ? -5 : j.tier) + (now - j.at) / 20000; }
 function sortQueue() { const now = performance.now(); queue.sort((a, b) => score(b, now) - score(a, now)); dirty = false; }
 
 function startNext() {
-  if (!queue.length || build || burstHold > 0 || value >= curGoal()) return;
-  sortQueue();
-  const j = queue.shift();
+  if (!belt.length || build || burstHold > 0 || value >= curGoal()) return;
+  const G = beltGeo(); if (belt[0].bx < G.endX - 2) return;   // монета ещё едет к упору
+  const j = belt.shift(); j.x0 = j.bx;
   j.avatar = avatarOf(j); j.sprite = makeCoin(j.avatar, j.tier, j.free); j.v = j.avatar.v;
   j.ph = 0; j.t = 0; j.dur = [.42, .15, .1, .22, .3 + j.tier * .08, .6 + j.tier * .45, .42];
-  const q = queue.length;
+  const q = queue.length + belt.length;
   const slow = lerp(TEMPO, 1, clamp((q - 2) / 20));   // чем длиннее очередь, тем меньше замедление
   j.speed = (q <= 2 ? 1 : lerp(1.25, 4, clamp((q - 2) / 40))) / slow;
   if (j.tier >= 3 && q < 30) j.speed = Math.min(j.speed, 1.3 / slow);
@@ -330,7 +330,7 @@ function bake(sprite, s) {
 
 // Звук из браузера, без файлов
 let ac = null, mute = false;
-function unlock() { if (!ac) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) ac = new AC(); } if (ac && ac.state === 'suspended') ac.resume(); }
+function unlock() { if (!ac) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) ac = new AC(); } if (ac && ac.state === 'suspended') ac.resume().then(startAmbient); else startAmbient(); }
 addEventListener('pointerdown', unlock);
 function tone(f, d, type, v, at = 0, to) {
   const t = ac.currentTime + at, o = ac.createOscillator(), n = ac.createGain();
@@ -365,6 +365,50 @@ let crackleOn = false;
 function crackle() { if (ac && !mute && ac.state === 'running') sfx('spark'); setTimeout(crackle, rand(120, 900)); }
 addEventListener('pointerdown', () => { if (!crackleOn) { crackleOn = true; crackle(); } });
 
+
+// Звук окружения: гул печи, пламя, мехи, далёкий молот, мотор и стук ленты. Всё синтезируется, файлов нет.
+let amb = null, ambBuf = null;
+function startAmbient() {
+  if (amb || !ac || ac.state !== 'running') return;
+  if (!ambBuf) {   // 6 секунд «коричневого» шума: мягкий гул без заметного повтора
+    ambBuf = ac.createBuffer(1, ac.sampleRate * 6, ac.sampleRate); const d = ambBuf.getChannelData(0); let l = 0;
+    for (let i = 0; i < d.length; i++) { l = (l + .02 * (Math.random() * 2 - 1)) / 1.02; d[i] = l * 3.5; }
+  }
+  const out = ac.createGain(); out.gain.value = 0; out.connect(ac.destination);
+  const layer = (buf, type, f, q, v) => {
+    const s = ac.createBufferSource(), fl = ac.createBiquadFilter(), gn = ac.createGain();
+    s.buffer = buf; s.loop = true; fl.type = type; fl.frequency.value = f; fl.Q.value = q; gn.gain.value = v;
+    s.connect(fl).connect(gn).connect(out); s.start(0, Math.random() * 3); return { fl, gn };
+  };
+  if (!noiseBuf) noise(.01, 1000, 1, .0001);
+  const rumble = layer(ambBuf, 'lowpass', 140, .7, .5), fire = layer(ambBuf, 'bandpass', 420, .6, .5), motor = layer(noiseBuf, 'bandpass', 800, 5, 0);
+  const hum = ac.createOscillator(), hl = ac.createBiquadFilter(), hg = ac.createGain();
+  hum.type = 'sawtooth'; hum.frequency.value = 46; hl.type = 'lowpass'; hl.frequency.value = 150; hg.gain.value = 0; hum.connect(hl).connect(hg).connect(out); hum.start();
+  amb = { out, rumble, fire, motor, hg, hammer: rand(3, 6), bellows: rand(5, 9), plate: 0, puff: 0 };
+}
+function updateAmbient(dt) {
+  if (!amb) return;
+  const t = ac.currentTime, v = clamp(beltV / BELT.vmax), p = clamp(value / curGoal());
+  amb.out.gain.setTargetAtTime(mute ? 0 : 1, t, .15);
+  amb.puff = Math.max(0, amb.puff - dt * .8);
+  // пламя дышит, громче при заполненном сундуке и когда качают мехи
+  amb.fire.gn.gain.setTargetAtTime((.2 + .26 * p + amb.puff * .5) * (.75 + .5 * Math.random()), t, .07);
+  amb.fire.fl.frequency.setTargetAtTime(380 + 220 * amb.puff + 60 * Math.random(), t, .1);
+  amb.rumble.gn.gain.setTargetAtTime(.3 + .14 * p + .3 * anvilKick, t, .2);
+  amb.motor.gn.gain.setTargetAtTime(v * .05, t, .08); amb.motor.fl.frequency.setTargetAtTime(600 + 500 * v, t, .1);
+  amb.hg.gain.setTargetAtTime(v * .06, t, .1);
+  if (mute) return;
+  // стук пластин ленты о ролики
+  const pl = Math.floor(beltScroll / 82); if (pl !== amb.plate) { amb.plate = pl; if (v > .1) { noise(.035, 1500, 1.4, .02 + .03 * v, 0, 'bandpass'); tone(120, .06, 'sine', .03 * v); } }
+  // далёкий молот в соседней кузнице
+  if ((amb.hammer -= dt) <= 0) {
+    amb.hammer = rand(7, 14); const n = 2 + Math.floor(rand(0, 3)), f = rand(620, 860);
+    for (let i = 0; i < n; i++) { const at = i * rand(.38, .5); tone(f, .4, 'sine', .022, at); tone(f * 2.7, .18, 'sine', .008, at); noise(.04, 1300, .8, .018, at, 'bandpass'); }
+  }
+  // мехи раздувают печь
+  if ((amb.bellows -= dt) <= 0) { amb.bellows = rand(10, 18); noise(1.3, 200, .7, .06, 0, 'lowpass', 650); amb.puff = .6; }
+}
+
 // Обновление
 function update(dt) {
   time += dt;
@@ -379,6 +423,7 @@ function update(dt) {
   burstHold = Math.max(0, burstHold - dt); lvlBadge = Math.max(0, lvlBadge - dt);
   if (!build && !job && burstHold <= 0 && !flyers.length && value >= curGoal()) startBuild();
   if (!build && !job && burstHold <= 0 && !flyers.length && value > 0 && pileLevel < Math.min(1, value / curGoal()) - .02) pourTo(Math.min(1, value / curGoal()), 4, L.cx, L.pileY - 420);
+  updateBelt(dt); updateAmbient(dt); updateDust(dt);
   if (!job) startNext();
   let target = 0;
   if (job) {
@@ -425,6 +470,48 @@ function drawFire() {
   g.fillStyle = gr; g.fillRect(f.x - r, f.y - r, r * 2, r * 2);
   for (const e of embers) { g.globalAlpha = clamp(e.life / 1.2) * .9; g.fillStyle = '#ffb347'; g.fillRect(e.x, e.y, e.z, e.z); }
   g.restore();
+}
+
+
+// Свет и тени
+let vig = null;
+function buildVignette() {
+  vig = document.createElement('canvas'); vig.width = cv.width; vig.height = cv.height; vig.src = art.bg;
+  const v = vig.getContext('2d'), w = vig.width, h = vig.height, b = art.bg, s = Math.max(w / b.width, h / b.height);
+  v.imageSmoothingQuality = 'high';
+  v.drawImage(b, w / 2 - b.width * s / 2, h / 2 - b.height * s / 2, b.width * s, b.height * s);
+  v.fillStyle = 'rgba(12,6,10,.10)'; v.fillRect(0, 0, w, h);   // лёгкое затемнение, чтобы монеты и ники читались
+  const gr = v.createRadialGradient(w / 2, h * .48, Math.min(w, h) * .3, w / 2, h * .48, Math.hypot(w, h) * .62);
+  gr.addColorStop(0, 'rgba(8,3,6,0)'); gr.addColorStop(.6, 'rgba(8,3,6,.25)'); gr.addColorStop(1, 'rgba(8,3,6,.78)');
+  v.fillStyle = gr; v.fillRect(0, 0, w, h);
+}
+const dust = [];
+function updateDust(dt) {
+  while (dust.length < 34) dust.push({ x: rand(140, W - 140), y: rand(140, 1100), vx: rand(-6, 6), vy: rand(-14, -4), ph: rand(0, TAU), s: rand(1.5, 3.6), life: rand(6, 14) });
+  for (let i = dust.length - 1; i >= 0; i--) { const d = dust[i]; d.life -= dt; d.x += (d.vx + Math.sin(time * .7 + d.ph) * 8) * dt; d.y += d.vy * dt; if (d.life <= 0 || d.y < 60) dust.splice(i, 1); }
+}
+function drawDust() {
+  g.save(); g.globalCompositeOperation = 'lighter'; g.fillStyle = '#ffcf8a';
+  for (const d of dust) { g.globalAlpha = clamp(d.life / 2) * clamp((14 - d.life) / 2 + .3) * (.18 + .14 * Math.sin(time * 2 + d.ph)); g.beginPath(); g.arc(d.x, d.y, d.s, 0, TAU); g.fill(); }
+  g.restore();
+}
+function lightSpot(x, y, r, col, a) {
+  if (a <= .005) return;
+  g.save(); g.globalCompositeOperation = 'lighter';
+  const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, col.replace('A', a)); gr.addColorStop(1, col.replace('A', 0));
+  g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); g.restore();
+}
+function drawChestShadow() {
+  const y = L.chestBot - 30, w = 380;
+  g.save(); g.translate(L.cx, y); g.scale(1, .16);
+  const gr = g.createRadialGradient(0, 0, 20, 0, 0, w); gr.addColorStop(0, 'rgba(0,0,0,.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(-w, -w, w * 2, w * 2); g.restore();
+  lightSpot(L.cx, L.chestTop + 60, 460, 'rgba(255,190,110,A)', .07 + .03 * Math.sin(time * 1.3));   // тёплый свет над сундуком
+}
+function drawStrikeLight() {
+  // удар пресса освещает нишу и ленту
+  lightSpot(L.cx, L.anvil + 10, 430, 'rgba(255,200,120,A)', anvilKick * .55);
+  if (job && job.ph >= 4 && job.ph <= 5) lightSpot(L.cx, L.heroY, 520, 'rgba(255,220,160,A)', .05 + job.tier * .025);
 }
 
 // Рисование
@@ -552,6 +639,7 @@ function drawWall() {
     drawRope(cx, y, hx, hy, t);
     // монета: рубин и бриллиант время от времени делают оборот
     const per = t === 4 ? 4 : 6.5, sp = ((time + i * .9) % per) / .9;
+    g.fillStyle = 'rgba(0,0,0,.28)'; g.beginPath(); g.arc(hx + 8, ccy + 10, 53, 0, TAU); g.fill();   // тень на стене
     if (t >= 3 && sp < 1) spinCoin(it.sprite, t, hx, ccy, 56, easeInOut(sp) * TAU);
     else g.drawImage(it.sprite, hx - 56, hy - 10, 112, 112);
     // блик: чем дороже, тем чаще
@@ -563,38 +651,92 @@ function drawWall() {
     txt(shortName(it.user, 8), hx, hy + 122, 21, TIERS[t].c[0], 'center', 5);
   }
 }
-let beltScroll = 0, beltJob = null, beltLast = 0;
+// Лента-накопитель: монеты выезжают из арки, едут к прессу и выстраиваются друг за другом у упора.
+// Кто выйдет из арки следующим, решает очередь (дорогие подарки раньше), а на ленте порядок уже не меняется.
+const BELT = { n: 3, r: 52, sp: 118, vmax: 300, acc: 700, scale: .7 };
+const belt = []; let beltScroll = 0, beltV = 0;
 const easeSine = t => -(Math.cos(Math.PI * t) - 1) / 2;
-// где в сценe начинается лента: на проёме арки слева в bg.png
-function beltStartX() {
-  const b = art.bg, s = b ? Math.max(SCW / b.width, SCH / b.height) : 1;
-  const sx = b ? SCW / 2 - b.width * s / 2 + 105 * s : 120;
-  return (sx - ox) / scale;
+// точка фона (в пикселях bg.png) -> координаты сцены
+function bgToStage(bx, by) {
+  const b = art.bg; if (!b) return null;
+  const s = Math.max(SCW / b.width, SCH / b.height);
+  return { x: (SCW / 2 - b.width * s / 2 + bx * s - ox) / scale, y: (SCH / 2 - b.height * s / 2 + by * s - oy) / scale };
+}
+function beltGeo() {
+  const F = FRAME, sf = F.s, hole = F.hole, cx = L.cx, plankTop = L.anvil + 66;
+  const fx = cx - (hole[0] + hole[2]) / 2 * sf, px0 = fx + hole[0] * sf, post = fx + 70 * sf;
+  const p = bgToStage(105, 0), bx0 = p ? p.x : 120, f = bgToStage(0, 900);
+  const bh = art.belt ? art.belt.height * BELT.scale : 30, by = plankTop - 18;
+  return { bx0, px0, post, by, bh, endX: post - BELT.r - 6, cy: by + 5 - BELT.r, floor: f ? f.y : by + 260 };
+}
+function updateBelt(dt) {
+  const G = beltGeo(), spawnX = G.bx0 + 6;
+  // из арки выходит следующая монета, если на ленте есть место
+  if (queue.length && belt.length < BELT.n) {
+    sortQueue(); const j = queue.shift(), last = belt[belt.length - 1];
+    j.bx = last ? Math.min(spawnX, last.bx - BELT.sp) : spawnX; j.onBelt = performance.now(); belt.push(j);
+  }
+  const busy = queue.length + belt.length, vmax = BELT.vmax * (1 + Math.min(2, busy / 12));
+  let moving = false;
+  belt.forEach((j, i) => {
+    const lim = i === 0 ? G.endX : belt[i - 1].bx - BELT.sp, d = lim - j.bx;
+    if (d > .5) { moving = true; j.bx += Math.min(d, Math.min(Math.max(beltV, 40), Math.sqrt(2 * BELT.acc * d)) * dt); }
+    else j.bx = Math.min(j.bx, lim);
+  });
+  beltV = moving ? Math.min(vmax, beltV + BELT.acc * dt) : Math.max(0, beltV - BELT.acc * 1.6 * dt);
+  beltScroll += beltV * dt;
+}
+function drawBelt() {
+  const G = beltGeo(), { bx0, px0, by, bh } = G;
+  // ножки до пола, с тенью
+  if (art.leg) {
+    const top = by + bh * .55, h = clamp(G.floor - top, 120, 460), w = h * art.leg.width / art.leg.height;
+    [.32, .8].forEach(k => {
+      const x = lerp(bx0, G.post, k);
+      const sh = g.createRadialGradient(x, top + h, 4, x, top + h, w * .9); sh.addColorStop(0, 'rgba(0,0,0,.55)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+      g.save(); g.translate(0, top + h); g.scale(1, .22); g.translate(0, -(top + h)); g.fillStyle = sh; g.fillRect(x - w, top + h - w, w * 2, w * 2); g.restore();
+      g.drawImage(art.leg, x - w / 2, top, w, h);
+    });
+  }
+  if (art.belt) {
+    const bw = art.belt.width * BELT.scale, off = beltScroll % bw;
+    g.save(); g.beginPath(); g.rect(bx0, by - 4, px0 + 4 - bx0, bh + 8); g.clip();
+    for (let x = off - bw; x < px0 + 4; x += bw) g.drawImage(art.belt, x, by, bw + 1, bh);
+    g.restore();
+  } else { g.fillStyle = '#231b20'; rr(bx0, by + 2, px0 + 4 - bx0, 20, 4); g.fill(); }
+  // монеты на ленте: тень, заготовка, над ней аватарка того, чья монета
+  g.save(); g.beginPath(); g.rect(bx0, 0, W, H); g.clip();
+  const now = performance.now();
+  belt.forEach((j, i) => {
+    const al = clamp((j.bx - bx0 + 20) / 120); if (al <= 0) return;
+    const r = BELT.r, y = G.cy - (beltV > 20 ? Math.abs(Math.sin(beltScroll * .09 + i)) * 1.6 : 0), x = j.bx, t = TIERS[j.tier];
+    g.globalAlpha = al * .5; g.fillStyle = '#000'; g.beginPath(); g.ellipse(x + 4, by + 6, r * .85, 6, 0, 0, TAU); g.fill();
+    g.globalAlpha = al; g.drawImage(blankCoin(j.tier), x - r, y - r, r * 2, r * 2);
+    glint(x, y, r - 2, ((time * .35 + i * .3) % 1.6) / .5, .35);
+    const ay = y - r - 46 + Math.sin(time * 2.6 + i * 1.3) * 4, ps = easeBack(clamp((now - j.onBelt) / 400));
+    g.save(); g.translate(x, ay); g.scale(ps, ps);
+    g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.moveTo(-8, 26); g.lineTo(8, 26); g.lineTo(0, 40); g.fill();
+    g.fillStyle = t.c[1]; g.beginPath(); g.moveTo(-9, 24); g.lineTo(9, 24); g.lineTo(0, 37); g.fill();
+    g.beginPath(); g.arc(0, 0, 33, 0, TAU); g.fill(); g.lineWidth = 3; g.strokeStyle = t.c[0]; g.stroke();
+    g.drawImage(thumb(avatarOf(j)), -28, -28, 56, 56);
+    if (j.free) txt('❤', 24, -22, 22, '#ff5b7f', 'center', 3);
+    else if (j.combo >= 2) txt('×' + j.combo, 26, -24, 20, '#fff1a8', 'center', 4);
+    g.restore();
+    if (i === 0 && j.bx >= G.endX - 2) { g.globalAlpha = al * (.35 + .25 * Math.sin(time * 5)); g.strokeStyle = t.c[0]; g.lineWidth = 3; g.beginPath(); g.arc(x, y, r + 6, 0, TAU); g.stroke(); }
+  });
+  g.restore(); g.globalAlpha = 1;
+  // темнота проёма поверх начала ленты и монет
+  if (art.belt) {
+    const fd = g.createLinearGradient(bx0, 0, bx0 + 130, 0); fd.addColorStop(0, 'rgba(14,6,5,.96)'); fd.addColorStop(1, 'rgba(14,6,5,0)');
+    g.fillStyle = fd; g.fillRect(bx0, by - 4, 130, bh + 8);
+  }
 }
 function drawPressArt() {
   const cx = L.cx, a = L.anvil, fr = art.press_frame, ph = art.press_head, F = FRAME, sf = F.s, hole = F.hole;
   // Наковальни нет: монета лежит на железной плите, настеленной на основание рамы
   const plankTop = a + 66, fx = cx - (hole[0] + hole[2]) / 2 * sf, fy = plankTop - hole[3] * sf, beamBottom = fy + hole[1] * sf;
   const px0 = fx + hole[0] * sf, px1 = fx + hole[2] * sf;
-  // лента подачи: выезжает из проёма слева, едет вправо вместе с монетой
-  if (art.belt) {
-    const bx0 = beltStartX();
-    if (job && job.ph === 0) {
-      const x = lerp(bx0 + 30, cx, easeSine(clamp(job.t / job.dur[0])));
-      if (job !== beltJob) { beltJob = job; beltLast = x; }
-      beltScroll += Math.max(0, x - beltLast); beltLast = x;
-    }
-    const bs = .7, bw = art.belt.width * bs, bh = art.belt.height * bs, by = plankTop - 18, off = beltScroll % bw;
-    g.save(); g.beginPath(); g.rect(bx0, by - 4, px0 + 4 - bx0, bh + 8); g.clip();
-    for (let x = off - bw; x < px0 + 4; x += bw) g.drawImage(art.belt, x, by, bw + 1, bh);
-    const fd = g.createLinearGradient(bx0, 0, bx0 + 130, 0); fd.addColorStop(0, 'rgba(14,6,5,.96)'); fd.addColorStop(1, 'rgba(14,6,5,0)');
-    g.fillStyle = fd; g.fillRect(bx0, by - 4, 130, bh + 8);
-    g.restore();
-  } else {
-    g.fillStyle = '#231b20'; rr(0, plankTop - 16, px0 + 4, 20, 4); g.fill();
-    g.fillStyle = '#5b4a3d'; const off = (job && job.ph === 0 ? time * 240 : 0) % 44;
-    for (let x = -44 + off; x < px0 - 8; x += 44) g.fillRect(x, plankTop - 12, 22, 12);
-  }
+  drawBelt();
   // штанга и головка: за рамой, верхняя часть прячется за балкой
   const hw = 190, hh = hw * ph.height / ph.width, hb = lerp(beamBottom + 40, a - 106, pressY), rx = cx - 16;
   g.fillStyle = '#6f6c76'; g.fillRect(rx, fy, 32, Math.max(0, hb - hh - fy));
@@ -614,10 +756,7 @@ function drawPress() {
   // наковальня
   rr(cx - 150, a + 8, 300, 34, 8); g.fillStyle = '#3f3a44'; g.fill();
   rr(cx - 86, a + 40, 172, 44, 6); g.fillStyle = '#2d2932'; g.fill();
-  // лента подачи
-  g.fillStyle = '#231b20'; rr(0, a + 8, cx - 140, 22, 4); g.fill();
-  g.fillStyle = '#5b4a3d'; const off = (job && job.ph === 0 ? time * 240 : 0) % 44;
-  for (let x = -44 + off; x < cx - 150; x += 44) g.fillRect(x, a + 12, 22, 14);
+  drawBelt();
   const hy = lerp(top + 90, a - 92, pressY);
   if (art.press_frame) g.drawImage(art.press_frame, cx - 240, top - 60, 480, a - top + 150);
   else {
@@ -635,7 +774,7 @@ function drawPress() {
 function drawJob() {
   const j = job; if (!j) return;
   const a = L.anvil, cx = L.cx, u = clamp(j.t / j.dur[j.ph]), t = TIERS[j.tier];
-  if (j.ph === 0) { const x = lerp(beltStartX() + 30, cx, easeSine(u)); g.save(); g.globalAlpha = clamp(u * 6); g.translate(x, a - 26); g.drawImage(blankCoin(j.tier), -76, -76, 152, 152); g.restore(); }
+  if (j.ph === 0) { const e = easeSine(u), x = lerp(j.x0 ?? cx - 200, cx, e), r = lerp(BELT.r, 76, e), y = lerp(beltGeo().cy, a - 26, e) - Math.sin(u * Math.PI) * 34; g.drawImage(blankCoin(j.tier), x - r, y - r, r * 2, r * 2); }
   else if (j.ph === 1) coinAt(blankCoin(j.tier), cx, a - 26, 76);
   else if (j.ph === 2) coinAt(j.sprite, cx, a - 26, 82, 1, .72 + .28 * u * u);
   else if (j.ph === 3) { coinAt(j.sprite, cx, a - 26, 82, 1, 1 + .1 * Math.sin(u * Math.PI)); glint(cx, a - 26, 80, u); }
@@ -679,17 +818,15 @@ function drawJob() {
     g.globalAlpha = 1; const p = pos(u); spinCoin(j.sprite, j.tier, p[0], p[1], p[2], u * TAU * 1.5);
   }
 }
+// сколько монет ещё ждёт в арке, кроме тех, что уже на ленте
 function drawQueue() {
-  const x0 = 28, y0 = L.queueTop, st = 90, shown = Math.min(queue.length, 6), now = performance.now();
-  for (let i = 0; i < shown; i++) {
-    const j = queue[i], col = i % 2, row = i >> 1, x = x0 + 44 + col * st, y = y0 + 44 + row * st + Math.sin(time * 2.5 + i) * 3;
-    const ps = easeBack(clamp((now - j.at) / 350));
-    if (i === 0) { g.save(); g.globalAlpha = .55 + .45 * Math.sin(time * 5); g.strokeStyle = TIERS[j.tier].c[0]; g.lineWidth = 4; g.beginPath(); g.arc(x, y, 49 + 2 * Math.sin(time * 5), 0, TAU); g.stroke(); g.restore(); }
-    g.save(); g.translate(x, y); g.scale(ps, ps);
-    g.fillStyle = TIERS[j.tier].c[1]; g.beginPath(); g.arc(0, 0, 43, 0, TAU); g.fill();
-    g.drawImage(thumb(avatarOf(j)), -37, -37, 74, 74); g.restore();
-  }
-  if (queue.length) txt('+' + queue.length, x0 + 88, y0 - 16, 42, '#fff1a8');
+  if (!queue.length) return;
+  const G = beltGeo(), x = G.bx0 + 70, y = G.cy - BELT.r - 150, p = 1 + .06 * Math.sin(time * 4);
+  g.save(); g.translate(x, y); g.scale(p, p);
+  rr(-62, -30, 124, 60, 30); g.fillStyle = 'rgba(21,12,14,.85)'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#d9b77a'; g.stroke();
+  coinAt(blankCoin(queue[0].tier), -30, 0, 20);
+  txt('+' + queue.length, 18, 1, 32, '#fff1a8', 'center', 0);
+  g.restore();
 }
 function drawTop() {
   const cx = W - 76, y0 = L.queueTop, now = performance.now();
@@ -751,7 +888,7 @@ function drawChest() {
   g.restore();
 }
 function drawIdle() {
-  if (job || queue.length) return;
+  if (job || queue.length || belt.length) return;
   const y = L.heroY, b = Math.sin(time * 3), t = TIERS[0];
   g.globalAlpha = .9;
   halo(L.cx + 110, y, 260, TIERS[0].c[1], .25 + .1 * Math.sin(time * 2));
@@ -764,16 +901,15 @@ function drawIdle() {
 function draw() {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.imageSmoothingQuality = 'high';
-  if (art.bg) {
-    const s = Math.max(SCW / art.bg.width, SCH / art.bg.height);
-    g.drawImage(art.bg, SCW / 2 - art.bg.width * s / 2, SCH / 2 - art.bg.height * s / 2, art.bg.width * s, art.bg.height * s);
-    g.fillStyle = 'rgba(12,6,10,.10)'; g.fillRect(0, 0, SCW, SCH);   // затемнение, чтобы монеты и ники читались
+  if (art.bg) {   // фон, затемнение и виньетка запекаются в один холст: это одна отрисовка за кадр
+    if (!vig || vig.src !== art.bg) buildVignette();
+    g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(vig, 0, 0); g.setTransform(dpr, 0, 0, dpr, 0, 0);
   } else { if (!bg) buildBg(); g.drawImage(bg, 0, 0, SCW, SCH); }
   drawFire();
   g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
   g.save();
   if (shake && !reduced) g.translate(rand(-shake, shake), rand(-shake, shake));
-  drawLegend(); drawWall(); drawPress(); drawLevelRays();
+  drawDust(); drawLegend(); drawWall(); drawPress(); drawStrikeLight(); drawLevelRays(); drawChestShadow();
   if (build) { const k = build.t / build.d; g.save(); g.translate(rand(-1, 1) * k * 10, rand(-1, 1) * k * 5); drawChest(); g.restore(); rays(L.cx, L.pileY, 20, 300 * k, 14, ['#fff1a8', '#ffb12b'], time * 1.6, .4 * k); halo(L.cx, L.pileY, 260 + k * 260, '#ffd36b', .25 + .5 * k); }
   else drawChest();
   drawTwinkles(); drawQueue(); drawTop();
@@ -864,7 +1000,7 @@ if (Live.testMode) {
   bots = true; pn.querySelector('button:nth-of-type(8)').setAttribute('aria-pressed', 'true');
 }
 
-window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, stat: () => ({ fps, queue: queue.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
+window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, stat: () => ({ fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
 resize();
 requestAnimationFrame(loop);
 })();

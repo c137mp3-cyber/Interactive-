@@ -14,6 +14,7 @@
 | `wall.png` | 2040×96 | Long horizontal brass rail, cartoon game art. |
 | `belt.png` | 1286×118 | Нарисованная лента подачи, бесшовная по горизонтали (едет вместе с монетой). |
 | `rope.png` | 218×93 | Один виток верёвки, повторяется вдоль подвеса бронзовой монеты. |
+| `leg.png` | 241×614 | Ножка-опора ленты; ставится под ленту дважды, растягивается до пола. |
 | `coin_bronze.png` | 640×640 | Round bronze coin frame with an empty transparent centre, top view, cartoon game art. |
 | `coin_silver.png` | 640×640 | То же, silver. |
 | `coin_gold.png` | 640×640 | То же, gold. |
@@ -24,4 +25,4 @@
 
 Если генератор не даёт прозрачный фон, просите зелёный: я уберу его при загрузке.
 
-Готовы: bg, chest_back, chest_front, press_frame, press_head, anvil, legend, wall, belt, rope, пять монет. Всё остальное рисуется кодом.
+Готовы: bg, chest_back, chest_front, press_frame, press_head, anvil, legend, wall, belt, rope, leg, пять монет. Всё остальное рисуется кодом.
