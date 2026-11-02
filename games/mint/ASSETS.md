@@ -10,6 +10,7 @@
 | `chest_back.png` | 689×454 | Открытый пустой сундук без крышки, вид сверху спереди. Целиком. |
 | `chest_front.png` | 689×218 | Нижняя часть того же сундука (передняя стенка), та же ширина, обрезана по верхней кромке стенки. |
 | `legend.png` | 1960×208 | Long empty wooden sign with brass corners, cartoon game art, no text. |
+| `anvil.png` | 621×367 | Наковальня сбоку без пня, плоская верхняя грань. |
 | `wall.png` | 2040×96 | Long horizontal brass rail, cartoon game art. |
 | `coin_bronze.png` | 640×640 | Round bronze coin frame with an empty transparent centre, top view, cartoon game art. |
 | `coin_silver.png` | 640×640 | То же, silver. |
@@ -21,4 +22,4 @@
 
 Если генератор не даёт прозрачный фон, просите зелёный: я уберу его при загрузке.
 
-Готовы: `bg`, `chest_back`, `chest_front`, `press_head`, пять монет. Остальные файлы пока рисуются кодом.
+Готовы: bg, chest_back, chest_front, press_frame, press_head, anvil, legend, wall, пять монет. Всё остальное рисуется кодом.

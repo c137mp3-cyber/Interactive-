@@ -19,7 +19,7 @@ const tierOf = coins => { let n = 0; TIERS.forEach((t, i) => { if (coins >= t.mi
 const GOALS = [100, 300, 700, 1500, 3000, 6000, 10000];
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
-const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'chest_back', 'chest_front', 'legend', 'wall',
+const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall',
   ...TIERS.map(t => 'coin_' + t.id)];
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png'; });
@@ -29,6 +29,8 @@ const W = 1080, H = 1400;          // сцена: все координаты с
 const SAFE = { top: .13, bottom: .72 }; // TikTok закрывает верх (шапка) и низ (чат): игра живёт между ними
 const HOLE = .70;                     // диаметр отверстия в рамках монет, доля от диаметра монеты
 const CHEST_W = 600;
+const FRAME = { w: 668, h: 848, hole: [150, 171, 514, 680], s: .55 };   // размеры press_frame.png и отверстие в нём
+const ANVIL = { fx: 400, fy: 6, s: .5 };                                // точка верхней грани на картинке наковальни
 let SCW = 1080, SCH = 1920, ox = 0, oy = 0, scale = 1, dpr = 1;
 const L = {};
 function resize() {
@@ -40,7 +42,7 @@ function resize() {
   scale = Math.min(iw / W, (bot - top) / H);
   ox = (iw - W * scale) / 2; oy = top + ((bot - top) - H * scale) / 2;
   L.cx = W / 2;
-  L.legendY = 70; L.rope = 170; L.heroY = 575; L.anvil = 830; L.pressTop = L.anvil - 370; L.queueTop = 420;
+  L.legendY = 70; L.rope = 170; L.heroY = 575; L.anvil = 770; L.pressTop = L.anvil - 370; L.queueTop = 420;
   L.chestTop = 1060; L.chestBot = Math.min(1390, L.chestTop + 330);
   bg = null; layoutChest(); if (!mound) initMound();
 }
@@ -267,6 +269,12 @@ function buildBg() {
   const ax = ox + L.cx * scale, ay = oy + L.anvil * scale, f = x.createRadialGradient(ax, ay, 40, ax, ay, 640 * scale);
   f.addColorStop(0, 'rgba(255,128,36,.40)'); f.addColorStop(1, 'rgba(255,128,36,0)'); x.fillStyle = f; x.fillRect(0, 0, SCW, SCH);
 }
+function stretch3(img, x, y, w, h, cap) {
+  const k = h / img.height, cw = Math.min(cap * k, w / 2);
+  g.drawImage(img, 0, 0, cap, img.height, x, y, cw, h);
+  g.drawImage(img, cap, 0, img.width - cap * 2, img.height, x + cw, y, w - cw * 2, h);
+  g.drawImage(img, img.width - cap, 0, cap, img.height, x + w - cw, y, cw, h);
+}
 function rr(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
 function shortName(s, n) { const a = [...s]; return a.length > n ? a.slice(0, n - 1).join('') + '…' : s; }
 function txt(s, x, y, size, color = '#fff5df', align = 'center', stroke = 6) {
@@ -279,7 +287,7 @@ function coinAt(sp, x, y, r, spin = 1) { g.save(); g.translate(x, y); g.scale(Ma
 let giftIcons = [];
 function drawLegend() {
   const n = TIERS.length, w = Math.min(W - 40, 980), x0 = L.cx - w / 2, y = L.legendY, h = 104, cell = w / n;
-  if (art.legend) g.drawImage(art.legend, x0, y - h / 2, w, h);
+  if (art.legend) stretch3(art.legend, x0, y - h / 2, w, h, 95);
   else { rr(x0, y - h / 2, w, h, 24); g.fillStyle = 'rgba(20,13,16,.78)'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#7a5a2b'; g.stroke(); }
   TIERS.forEach((t, i) => {
     const cx = x0 + cell * (i + .5), wob = Math.sin(time * 2.4 + i) * 3;
@@ -292,7 +300,7 @@ function drawLegend() {
 }
 function drawWall() {
   const y = L.rope, n = 7, w = Math.min(W - 60, 980), x0 = L.cx - w / 2, gap = w / n;
-  if (art.wall) g.drawImage(art.wall, x0 - 20, y - 24, w + 40, 48);
+  if (art.wall) stretch3(art.wall, x0 - 20, y - 24, w + 40, 48, 70);
   else { g.lineWidth = 10; g.strokeStyle = '#a57a3d'; g.beginPath(); g.moveTo(x0 - 10, y); g.lineTo(x0 + w + 10, y); g.stroke(); }
   for (let i = 0; i < n; i++) {
     const cx = x0 + gap * (i + .5), it = wall[i], len = 56;
@@ -303,7 +311,24 @@ function drawWall() {
     txt(shortName(it.user, 8), hx, hy + 122, 21, TIERS[it.tier].c[0], 'center', 5);
   }
 }
+function drawPressArt() {
+  const cx = L.cx, a = L.anvil, fr = art.press_frame, an = art.anvil, ph = art.press_head, F = FRAME, sf = F.s;
+  const aw = an.width * ANVIL.s, ah = an.height * ANVIL.s, ax = cx - ANVIL.fx * ANVIL.s, ay = a + 8 - ANVIL.fy * ANVIL.s;
+  const hole = F.hole, fx = cx - (hole[0] + hole[2]) / 2 * sf, fy = ay + 22 - hole[3] * sf, beamBottom = fy + hole[1] * sf;
+  // лента подачи
+  g.fillStyle = '#231b20'; rr(0, a + 8, cx - 100, 22, 4); g.fill();
+  g.fillStyle = '#5b4a3d'; const off = (job && job.ph === 0 ? time * 240 : 0) % 44;
+  for (let x = -44 + off; x < cx - 110; x += 44) g.fillRect(x, a + 12, 22, 14);
+  // штанга и головка: за рамой, верхняя часть прячется за балкой
+  const hw = 190, hh = hw * ph.height / ph.width, hb = lerp(beamBottom + 40, a - 106, pressY), rx = cx - 16;
+  g.fillStyle = '#6f6c76'; g.fillRect(rx, fy, 32, Math.max(0, hb - hh - fy));
+  g.fillStyle = 'rgba(255,255,255,.14)'; g.fillRect(rx + 6, fy, 6, Math.max(0, hb - hh - fy));
+  g.drawImage(ph, cx - hw / 2, hb - hh, hw, hh);
+  g.drawImage(fr, fx, fy, F.w * sf, F.h * sf);
+  g.drawImage(an, ax, ay, aw, ah);
+}
 function drawPress() {
+  if (art.press_frame && art.anvil && art.press_head) return drawPressArt();
   const cx = L.cx, a = L.anvil, top = L.pressTop, hw = 170;
   // наковальня
   rr(cx - 150, a + 8, 300, 34, 8); g.fillStyle = '#3f3a44'; g.fill();
