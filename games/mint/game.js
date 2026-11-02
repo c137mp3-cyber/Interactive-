@@ -29,9 +29,9 @@ const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
 const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
-const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall',
+const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 10;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 11;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -515,7 +515,11 @@ const easeInOut = t => t < .5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 function drawRope(x0, y0, x1, y1, ti) {
   const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
   g.save(); g.translate(x0, y0); g.rotate(ang);
-  if (ti === 0) {
+  if (ti === 0 && art.rope) {
+    const rw = 11, th = art.rope.height * rw / art.rope.width;
+    g.rotate(-Math.PI / 2);
+    for (let k = 0; k * th < len; k++) g.drawImage(art.rope, -rw / 2, k * th, rw, th + .6);
+  } else if (ti === 0) {
     g.lineWidth = 4; g.strokeStyle = '#a07a45'; g.beginPath(); g.moveTo(0, 0); g.lineTo(len, 0); g.stroke();
     g.lineWidth = 1.4; g.strokeStyle = 'rgba(55,30,12,.75)'; for (let k = 4; k < len; k += 6) { g.beginPath(); g.moveTo(k - 2, -2); g.lineTo(k + 2, 2); g.stroke(); }
   } else {
@@ -559,15 +563,28 @@ function drawWall() {
     txt(shortName(it.user, 8), hx, hy + 122, 21, TIERS[t].c[0], 'center', 5);
   }
 }
+let beltScroll = 0, beltJob = null, beltLast = -80;
 function drawPressArt() {
   const cx = L.cx, a = L.anvil, fr = art.press_frame, ph = art.press_head, F = FRAME, sf = F.s, hole = F.hole;
   // Наковальни нет: монета лежит на железной плите, настеленной на основание рамы
   const plankTop = a + 66, fx = cx - (hole[0] + hole[2]) / 2 * sf, fy = plankTop - hole[3] * sf, beamBottom = fy + hole[1] * sf;
   const px0 = fx + hole[0] * sf, px1 = fx + hole[2] * sf;
-  // лента подачи
-  g.fillStyle = '#231b20'; rr(0, plankTop - 16, px0 + 4, 20, 4); g.fill();
-  g.fillStyle = '#5b4a3d'; const off = (job && job.ph === 0 ? time * 240 : 0) % 44;
-  for (let x = -44 + off; x < px0 - 8; x += 44) g.fillRect(x, plankTop - 12, 22, 12);
+  // лента подачи: нарисованная лента едет вместе с монетой
+  if (art.belt) {
+    if (job && job.ph === 0) {
+      const x = lerp(-80, cx, easeOut(clamp(job.t / job.dur[0])));
+      if (job !== beltJob) { beltJob = job; beltLast = -80; }
+      beltScroll += Math.max(0, x - beltLast); beltLast = x;
+    }
+    const bs = .7, bw = art.belt.width * bs, bh = art.belt.height * bs, by = plankTop - 18, off = beltScroll % bw;
+    g.save(); g.beginPath(); g.rect(0, by - 4, px0 + 4, bh + 8); g.clip();
+    for (let x = -off; x < px0 + 4; x += bw) g.drawImage(art.belt, x, by, bw + 1, bh);
+    g.restore();
+  } else {
+    g.fillStyle = '#231b20'; rr(0, plankTop - 16, px0 + 4, 20, 4); g.fill();
+    g.fillStyle = '#5b4a3d'; const off = (job && job.ph === 0 ? time * 240 : 0) % 44;
+    for (let x = -44 + off; x < px0 - 8; x += 44) g.fillRect(x, plankTop - 12, 22, 12);
+  }
   // штанга и головка: за рамой, верхняя часть прячется за балкой
   const hw = 190, hh = hw * ph.height / ph.width, hb = lerp(beamBottom + 40, a - 106, pressY), rx = cx - 16;
   g.fillStyle = '#6f6c76'; g.fillRect(rx, fy, 32, Math.max(0, hb - hh - fy));
