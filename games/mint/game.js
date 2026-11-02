@@ -319,9 +319,10 @@ function drawPress() {
     rr(cx - 250, top - 62, 500, 74, 12); g.fillStyle = '#5b4739'; g.fill(); g.lineWidth = 5; g.strokeStyle = '#2a1e18'; g.stroke();
     g.fillStyle = '#d6b36a'; [-210, 210].forEach(o => { g.beginPath(); g.arc(cx + o, top - 25, 12, 0, TAU); g.fill(); });
   }
-  if (art.press_head) g.drawImage(art.press_head, cx - hw, hy - 130, hw * 2, 215);
+  g.fillStyle = '#6f6c76'; g.fillRect(cx - 26, top, 52, Math.max(0, hy - top - 30));   // штанга
+  g.fillStyle = 'rgba(255,255,255,.14)'; g.fillRect(cx - 18, top, 8, Math.max(0, hy - top - 30));
+  if (art.press_head) { const ph = art.press_head, w = 340, h = w * ph.height / ph.width; g.drawImage(ph, cx - w / 2, hy + 46 - h, w, h); }
   else {
-    g.fillStyle = '#8a8791'; g.fillRect(cx - 28, top, 56, Math.max(0, hy - top - 30));
     rr(cx - hw, hy - 42, hw * 2, 88, 10); const m = g.createLinearGradient(0, hy - 42, 0, hy + 46); m.addColorStop(0, '#a4a0aa'); m.addColorStop(1, '#55525c'); g.fillStyle = m; g.fill(); g.lineWidth = 5; g.strokeStyle = '#26232b'; g.stroke();
   }
 }
