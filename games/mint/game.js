@@ -17,12 +17,13 @@ const TIERS = [
 ];
 const tierOf = coins => { let n = 0; TIERS.forEach((t, i) => { if (coins >= t.min) n = i; }); return n; };
 const GOALS = [100, 300, 700, 1500, 3000, 6000, 10000];
+const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
 const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 6;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 7;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -131,7 +132,7 @@ function blankCoin(ti) {
 const queue = []; let dirty = false, job = null;
 const wall = [], parts = [], flyers = [], tiny = [], rings = [], spots = [], twinkles = [];
 const donors = new Map(); let topDonors = [];
-let cine = 0, lvlT = 0, hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
+let build = null, burstHold = 0, pileLevel = 0, lvlBadge = 0, cine = 0, lvlT = 0, hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function addGift(m) {
@@ -149,7 +150,7 @@ function score(j, now) { return j.tier + (now - j.at) / 20000; }
 function sortQueue() { const now = performance.now(); queue.sort((a, b) => score(b, now) - score(a, now)); dirty = false; }
 
 function startNext() {
-  if (!queue.length) return;
+  if (!queue.length || build || burstHold > 0 || value >= curGoal()) return;
   sortQueue();
   const j = queue.shift();
   j.avatar = avatarOf(j); j.sprite = makeCoin(j.avatar, j.tier); j.v = j.avatar.v;
@@ -166,7 +167,7 @@ function nextPhase() {
   if (j.ph === 2) strike(j);
   if (j.ph === 5) heroStart(j);
   if (j.ph === 5) { sfx('ta', j.tier); if (j.tier >= 2) burst(L.cx, L.heroY, TIERS[j.tier], TIERS[j.tier].burst, 700); if (j.tier >= 3) { flash = j.tier === 4 ? .5 : .25; flashColor = TIERS[j.tier].c[1]; } }
-  if (j.ph === 6) { j.slot = moundSlot(); for (let i = 1; i < Math.min(j.count, 16); i++) flyers.push({ sprite: blankCoin(j.tier), x: L.cx, y: L.heroY, t: -i * .05, d: rand(.45, .7), tx: L.cx + rand(-L.slotHW, L.slotHW), ty: L.slotY - rand(0, 60), a: rand(0, TAU), r: 26 }); }
+  if (j.ph === 6) { const lv = Math.min(1, (value + j.coins * j.count) / curGoal()); pourTo(lv, j.tier, L.cx, L.heroY, Math.min(j.count - 1, 15)); j.slot = moundSlot(lv); }
   if (j.ph >= j.dur.length) land(j);
 }
 function strike(j) {
@@ -177,14 +178,14 @@ function strike(j) {
   if (j.avatar.v !== j.v) j.sprite = makeCoin(j.avatar, j.tier);
 }
 function land(j) {
+  for (const f of flyers) if (f.slot) { bake(f.sprite, f.slot); } flyers.length = 0;   // докидываем мелочь, чтобы монета зрителя легла сверху
   bake(j.sprite, j.slot); sfx('clink', j.tier); chestKick = 1; total++;
   burst(j.slot.x, j.slot.y, TIERS[j.tier], 6, 260);
   ring(j.slot.x, j.slot.y, 70, TIERS[j.tier].c[0], .3, 6);
   spots.push({ x: j.slot.x, y: j.slot.y, tier: j.tier }); if (spots.length > 40) spots.shift();
-  sprites.push(j.sprite); if (sprites.length > 30) sprites.shift();
+  sprites.push({ s: j.sprite, tier: j.tier }); if (sprites.length > 30) sprites.shift();
   addWall(j); sfx('rope');
   value += j.coins * j.count;
-  if (value >= GOALS[Math.min(level, GOALS.length - 1)]) levelUp();
   job = null;
 }
 function addWall(j) {
@@ -194,17 +195,30 @@ function addWall(j) {
   wall.sort((a, b) => b.value - a.value || b.at - a.at);
   wall.length = Math.min(wall.length, 7);
 }
-function levelUp() {
-  value -= GOALS[Math.min(level, GOALS.length - 1)]; level++;
-  sfx('win', 4); flash = .6; flashColor = '#fff1a8'; shake = 36; chestKick = 2;
-  for (let i = 0; i < 44 && sprites.length; i++) {
-    const a = rand(-Math.PI * .9, -Math.PI * .1), sp = rand(500, 1300);
-    tiny.push({ sprite: sprites[i % sprites.length], x: L.cx + rand(-180, 180), y: L.pileY + 60, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: rand(30, 58), a: rand(0, TAU), va: rand(-7, 7), life: 2.4 });
+// Мелкие монеты сыплются в сундук, чтобы высота кучи совпадала с полосой прогресса
+function pourTo(lv, maxTier, fx, fy, extra = 0) {
+  const n = Math.min(40, Math.max(extra, Math.round((lv - pileLevel) * 45)));
+  for (let i = 0; i < n; i++) {
+    const tl = i < extra ? maxTier : Math.floor(rand(0, maxTier + 1)), slot = moundSlot(lerp(pileLevel, lv, (i + 1) / (n + 1)));
+    flyers.push({ sprite: blankCoin(tl), x: fx + rand(-50, 50), y: fy, t: -i * (.3 / Math.max(n, 1)), d: rand(.26, .4), tx: slot.x, ty: slot.y, slot, a: rand(0, TAU), r: 24 });
   }
-  burst(L.cx, L.pileY, TIERS[4], 90, 1200);
-  ring(L.cx, L.pileY, 700, '#fff1a8', .8, 18); ring(L.cx, L.pileY, 480, '#ffb12b', .6, 12, -.15);
-  lvlT = 1.6; spots.length = 0;
-  initMound();
+  pileLevel = Math.max(pileLevel, lv);
+}
+function startBuild() { build = { t: 0, d: 1.25, next: 0 }; sfx('build'); }
+// Сундук переполнен: дрожит, светится и взрывается фонтаном монет
+function doBurst() {
+  value -= curGoal(); level++;
+  sfx('win', 4); flash = .55; flashColor = '#fff1a8'; shake = 42; chestKick = 2;
+  const pool = sprites.length ? sprites : [{ s: blankCoin(0), tier: 0 }];
+  for (let i = 0; i < 72; i++) {
+    const own = i < 30 && i < pool.length * 2, src = own ? pool[i % pool.length] : null, ti = src ? src.tier : Math.floor(rand(0, 5));
+    tiny.push({ spin: true, sprite: src ? src.s : blankCoin(ti), tier: ti, x: L.cx + rand(-L.slotHW, L.slotHW), y: L.pileY + rand(0, 70),
+      vx: rand(-560, 560), vy: -rand(950, 1800), r: own ? rand(40, 62) : rand(22, 38), ang: rand(0, TAU), vang: rand(-14, 14), life: rand(2.2, 3.2), grow: i % 9 === 0 ? rand(70, 150) : 0 });
+  }
+  ring(L.cx, L.pileY, 760, '#fff1a8', .8, 20); ring(L.cx, L.pileY, 520, '#ffb12b', .65, 14, -.12); ring(L.cx, L.pileY, 300, '#ffffff', .4, 10);
+  burst(L.cx, L.pileY, TIERS[4], 100, 1300);
+  lvlT = 1.6; lvlBadge = 1.9; spots.length = 0; burstHold = 1.1;
+  initMound(); pileLevel = 0;
 }
 function heroStart(j) {
   const t = TIERS[j.tier], r = heroR(j);
@@ -224,11 +238,10 @@ function initMound() {
   mound = document.createElement('canvas'); mound.width = MW; mound.height = MH; mx = mound.getContext('2d');
   heights = new Array(24).fill(0);
 }
-function moundSlot() {
-  let best = Math.floor(rand(1, 23));
-  for (let i = 0; i < 3; i++) { const c = Math.floor(rand(1, 23)); if (heights[c] < heights[best]) best = c; }
-  const h = Math.min(heights[best], L.capH);
-  return { c: best, x: L.cx + ((best + .5) / 24 - .5) * 2 * L.slotHW + rand(-6, 6), y: L.slotY - h, h };
+function moundSlot(level = pileLevel) {
+  const c = Math.floor(rand(1, 23)), edge = ((c - 11.5) / 11.5) ** 2;
+  const h = clamp(level) * L.capH * rand(.84, 1) * (1 - .3 * edge);   // горка: в середине выше
+  return { c, x: L.cx + ((c + .5) / 24 - .5) * 2 * L.slotHW + rand(-6, 6), y: L.slotY - h, h };
 }
 function bake(sprite, s) {
   const r = 44, x = s.x - (L.cx - MW / 2), y = s.y - (L.mBase - MH);
@@ -266,6 +279,7 @@ function sfx(k, ti) {
   if (k === 'rope') { tone(260, .12, 'sine', .08, 0, 150); noise(.05, 800, 1, .03); }
   if (k === 'ta') { const n = 2 + ti; for (let i = 0; i < n; i++) bell(523 * 2 ** ([0, 4, 7, 12, 16, 19][i] / 12), .55, .09, i * .08); if (ti >= 3) noise(.6, 7000, 2, .04, .1, 'highpass'); }
   if (k === 'win') { [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => { const f = 392 * 2 ** (s / 12); tone(f, .6, 'sawtooth', .035, i * .09); bell(f * 2, .9, .07, i * .09); }); noise(.9, 6000, 1.5, .06, .1, 'highpass'); }
+  if (k === 'build') { noise(1.3, 250, 1.2, .07, 0, 'bandpass', 3200); tone(110, 1.3, 'sawtooth', .03, 0, 440); }
   if (k === 'spark') noise(.03 + Math.random() * .03, rand(2500, 6500), 2, .035, 0, 'bandpass');
 }
 let crackleOn = false;
@@ -278,6 +292,14 @@ function update(dt) {
   if (hitstop > 0) { hitstop -= dt; return; }   // короткая заморозка в момент удара
   anvilKick = Math.max(0, anvilKick - dt * 7);
   updateEmbers(dt);
+  if (build) {
+    build.t += dt; build.next -= dt;
+    if (build.next <= 0) { build.next = rand(.07, .14); sfx('clink', Math.floor(rand(0, 5))); if (Math.random() < .6) tiny.push({ sprite: blankCoin(Math.floor(rand(0, 5))), x: L.cx + rand(-L.slotHW, L.slotHW), y: L.pileY, vx: rand(-120, 120), vy: -rand(350, 650), r: rand(16, 26), a: rand(0, TAU), va: rand(-8, 8), life: 1.2 }); }
+    if (build.t >= build.d) { build = null; doBurst(); }
+  }
+  burstHold = Math.max(0, burstHold - dt); lvlBadge = Math.max(0, lvlBadge - dt);
+  if (!build && !job && burstHold <= 0 && !flyers.length && value >= curGoal()) startBuild();
+  if (!build && !job && burstHold <= 0 && !flyers.length && value > 0 && pileLevel < Math.min(1, value / curGoal()) - .02) pourTo(Math.min(1, value / curGoal()), 4, L.cx, L.pileY - 420);
   if (!job) startNext();
   let target = 0;
   if (job) {
@@ -291,8 +313,8 @@ function update(dt) {
     pressY = target;
   } else pressY = lerp(pressY, 0, clamp(dt * 8));
   for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.life -= dt; if (p.life <= 0) { parts.splice(i, 1); continue; } p.vy += 1100 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
-  for (let i = flyers.length - 1; i >= 0; i--) { const f = flyers[i]; f.t += dt; if (f.t > f.d) { flyers.splice(i, 1); sfx('clink', 0); chestKick = Math.max(chestKick, .5); } }
-  for (let i = tiny.length - 1; i >= 0; i--) { const p = tiny[i]; p.life -= dt; if (p.life <= 0 || p.y > H + 700) { tiny.splice(i, 1); continue; } p.vy += 1400 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.a += p.va * dt; }
+  for (let i = flyers.length - 1; i >= 0; i--) { const f = flyers[i]; f.t += dt; if (f.t > f.d) { flyers.splice(i, 1); if (f.slot) bake(f.sprite, f.slot); if (i % 3 === 0) sfx('clink', 0); chestKick = Math.max(chestKick, .5); } }
+  for (let i = tiny.length - 1; i >= 0; i--) { const p = tiny[i]; p.life -= dt; if (p.life <= 0 || p.y > H + 700) { tiny.splice(i, 1); continue; } p.vy += 1400 * dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.spin) { p.ang += p.vang * dt; if (p.grow) p.r += p.grow * dt; } else p.a += p.va * dt; }
   for (let i = rings.length - 1; i >= 0; i--) { rings[i].t += dt; if (rings[i].t > rings[i].d) rings.splice(i, 1); }
   for (let i = twinkles.length - 1; i >= 0; i--) { twinkles[i].t += dt; if (twinkles[i].t > twinkles[i].d) twinkles.splice(i, 1); }
   if (spots.length && Math.random() < dt * (1.2 + spots.length * .08)) { const p = spots[Math.floor(rand(0, spots.length))]; twinkles.push({ x: p.x + rand(-22, 22), y: p.y + rand(-22, 10), t: 0, d: rand(.5, .9), s: 9 + p.tier * 4, c: TIERS[p.tier].c[0] }); }
@@ -536,7 +558,7 @@ function drawChest() {
   rr(cx - pw / 2, py - 19, pw, 38, 19); g.fillStyle = 'rgba(14,8,10,.85)'; g.fill();
   const p = clamp(value / goal);
   if (p > .02) { rr(cx - pw / 2 + 4, py - 15, (pw - 8) * p, 30, 15); const m = g.createLinearGradient(cx - pw / 2, 0, cx + pw / 2, 0); m.addColorStop(0, '#ffb12b'); m.addColorStop(1, '#fff19a'); g.fillStyle = m; g.fill(); }
-  txt(value + ' / ' + goal, cx, py + 1, 25, '#fff', 'center', 5);
+  txt(Math.min(value, goal) + ' / ' + goal, cx, py + 1, 25, '#fff', 'center', 5);
   txt('★' + (level + 1), cx - pw / 2 - 42, py + 1, 32, '#fff1a8');
   if (L.art) {
     const a = L.art, base = a.y + a.h, k = 1 + kick * .004;
@@ -583,11 +605,20 @@ function draw() {
   g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
   g.save();
   if (shake && !reduced) g.translate(rand(-shake, shake), rand(-shake, shake));
-  drawLegend(); drawWall(); drawPress(); drawLevelRays(); drawChest(); drawTwinkles(); drawQueue(); drawTop();
+  drawLegend(); drawWall(); drawPress(); drawLevelRays();
+  if (build) { const k = build.t / build.d; g.save(); g.translate(rand(-1, 1) * k * 10, rand(-1, 1) * k * 5); drawChest(); g.restore(); rays(L.cx, L.pileY, 20, 300 * k, 14, ['#fff1a8', '#ffb12b'], time * 1.6, .4 * k); halo(L.cx, L.pileY, 260 + k * 260, '#ffd36b', .25 + .5 * k); }
+  else drawChest();
+  drawTwinkles(); drawQueue(); drawTop();
   if (cine > .01) { g.fillStyle = `rgba(6,3,9,${cine})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120); }
   for (const f of flyers) { if (f.t < 0) continue; const u = clamp(f.t / f.d); g.save(); g.translate(lerp(f.x, f.tx, u), lerp(f.y, f.ty, u * u) - Math.sin(u * Math.PI) * 120); g.rotate(f.a + u * 8); g.drawImage(f.sprite, -f.r, -f.r, f.r * 2, f.r * 2); g.restore(); }
   drawIdle(); drawJob();
-  for (const p of tiny) { g.save(); g.translate(p.x, p.y); g.rotate(p.a); g.drawImage(p.sprite, -p.r, -p.r, p.r * 2, p.r * 2); g.restore(); }
+  for (const p of tiny) {
+    g.globalAlpha = clamp(p.life / .6);
+    if (p.spin) spinCoin(p.sprite, p.tier, p.x, p.y, p.r, p.ang);
+    else { g.save(); g.translate(p.x, p.y); g.rotate(p.a); g.drawImage(p.sprite, -p.r, -p.r, p.r * 2, p.r * 2); g.restore(); }
+  }
+  g.globalAlpha = 1;
+  if (lvlBadge > 0) { const sc = easeBack(clamp((1.9 - lvlBadge) / .35)); halo(L.cx, L.heroY, 360, '#ffd36b', clamp(lvlBadge / .5) * .7); g.save(); g.globalAlpha = clamp(lvlBadge / .5); g.translate(L.cx, L.heroY); g.scale(sc, sc); txt('★' + (level + 1), 0, 0, 180, '#fff1a8', 'center', 12); g.restore(); }
   for (const p of parts) { g.globalAlpha = clamp(p.life / .4); g.fillStyle = p.c; g.fillRect(p.x, p.y, p.size, p.size); }
   g.globalAlpha = 1;
   drawRings();
