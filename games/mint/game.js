@@ -17,11 +17,12 @@ const TIERS = [
 ];
 const tierOf = coins => { let n = 0; TIERS.forEach((t, i) => { if (coins >= t.min) n = i; }); return n; };
 const GOALS = [100, 300, 700, 1500, 3000, 6000, 10000];
+const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 4;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 5;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -154,12 +155,14 @@ function startNext() {
   j.avatar = avatarOf(j); j.sprite = makeCoin(j.avatar, j.tier); j.v = j.avatar.v;
   j.ph = 0; j.t = 0; j.dur = [.42, .15, .1, .22, .3, .55 + j.tier * .4, .4];
   const q = queue.length;
-  j.speed = q <= 2 ? 1 : lerp(1.25, 4, clamp((q - 2) / 40));
-  if (j.tier >= 3 && q < 30) j.speed = Math.min(j.speed, 1.3);
+  const slow = lerp(TEMPO, 1, clamp((q - 2) / 20));   // чем длиннее очередь, тем меньше замедление
+  j.speed = (q <= 2 ? 1 : lerp(1.25, 4, clamp((q - 2) / 40))) / slow;
+  if (j.tier >= 3 && q < 30) j.speed = Math.min(j.speed, 1.3 / slow);
   job = j;
 }
 function nextPhase() {
   const j = job; j.ph++; j.t = 0;
+  if (j.ph === 1) sfx('whoosh');
   if (j.ph === 2) strike(j);
   if (j.ph === 5) { sfx('ta', j.tier); if (j.tier >= 2) burst(L.cx, L.heroY, TIERS[j.tier], TIERS[j.tier].burst, 700); if (j.tier >= 3) { flash = j.tier === 4 ? .5 : .25; flashColor = TIERS[j.tier].c[1]; } }
   if (j.ph === 6) { j.slot = moundSlot(); for (let i = 1; i < Math.min(j.count, 16); i++) flyers.push({ sprite: blankCoin(j.tier), x: L.cx, y: L.heroY, t: -i * .05, d: rand(.45, .7), tx: L.cx + rand(-L.slotHW, L.slotHW), ty: L.slotY - rand(0, 60), a: rand(0, TAU), r: 26 }); }
@@ -175,7 +178,7 @@ function land(j) {
   bake(j.sprite, j.slot); sfx('clink', j.tier); chestKick = 1; total++;
   burst(j.slot.x, j.slot.y, TIERS[j.tier], 6, 260);
   sprites.push(j.sprite); if (sprites.length > 30) sprites.shift();
-  addWall(j);
+  addWall(j); sfx('rope');
   value += j.coins * j.count;
   if (value >= GOALS[Math.min(level, GOALS.length - 1)]) levelUp();
   job = null;
@@ -230,13 +233,31 @@ function tone(f, d, type, v, at = 0, to) {
   n.gain.setValueAtTime(v, t); n.gain.exponentialRampToValueAtTime(.001, t + d);
   o.connect(n).connect(ac.destination); o.start(t); o.stop(t + d);
 }
+let noiseBuf = null;
+function noise(d, f, q, v, at = 0, type = 'bandpass', to) {
+  if (!noiseBuf) { noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); const a = noiseBuf.getChannelData(0); for (let i = 0; i < a.length; i++) a[i] = Math.random() * 2 - 1; }
+  const t = ac.currentTime + at, src = ac.createBufferSource(), fl = ac.createBiquadFilter(), n = ac.createGain();
+  src.buffer = noiseBuf; src.loop = true; fl.type = type; fl.frequency.setValueAtTime(f, t); if (to) fl.frequency.exponentialRampToValueAtTime(to, t + d); fl.Q.value = q;
+  n.gain.setValueAtTime(v, t); n.gain.exponentialRampToValueAtTime(.001, t + d);
+  src.connect(fl).connect(n).connect(ac.destination); src.start(t, Math.random() * .5); src.stop(t + d);
+}
+function bell(f, d, v, at = 0) { tone(f, d, 'sine', v, at); tone(f * 2.76, d * .5, 'sine', v * .35, at); tone(f * 5.4, d * .25, 'sine', v * .12, at); }
 function sfx(k, ti) {
   if (!ac || mute || ac.state !== 'running') return;
-  if (k === 'clank') { tone(150, .16, 'square', .22, 0, 55); tone(1900 + ti * 300, .1, 'triangle', .12); }
-  if (k === 'clink') tone(2400 + ti * 450, .22, 'sine', .1);
-  if (k === 'ta') [0, 4, 7, 12].slice(0, 2 + ti).forEach((s, i) => tone(523 * 2 ** (s / 12), .28, 'triangle', .1, i * .07));
-  if (k === 'win') [0, 4, 7, 12, 16, 19].forEach((s, i) => tone(523 * 2 ** (s / 12), .4, 'triangle', .12, i * .09));
+  if (k === 'whoosh') noise(.22, 600, .8, .06, 0, 'bandpass', 2400);
+  if (k === 'clank') {                                          // удар пресса по плите
+    tone(170, .22, 'sine', .38, 0, 45); noise(.07, 2600, .7, .26, 0, 'highpass');
+    [830, 1313, 2140, 3010].forEach((f, i) => tone(f * (1 + ti * .1), .55 - i * .1, 'sine', .07 / (i + 1) * 2, 0));
+  }
+  if (k === 'clink') { const r = rand(.94, 1.06) * (1 + ti * .05); [2800, 4150, 5600].forEach((f, i) => tone(f * r, .28 - i * .06, 'sine', .06 / (i + 1))); noise(.03, 5000, 1, .05, 0, 'highpass'); }
+  if (k === 'rope') { tone(260, .12, 'sine', .08, 0, 150); noise(.05, 800, 1, .03); }
+  if (k === 'ta') { const n = 2 + ti; for (let i = 0; i < n; i++) bell(523 * 2 ** ([0, 4, 7, 12, 16, 19][i] / 12), .55, .09, i * .08); if (ti >= 3) noise(.6, 7000, 2, .04, .1, 'highpass'); }
+  if (k === 'win') { [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => { const f = 392 * 2 ** (s / 12); tone(f, .6, 'sawtooth', .035, i * .09); bell(f * 2, .9, .07, i * .09); }); noise(.9, 6000, 1.5, .06, .1, 'highpass'); }
+  if (k === 'spark') noise(.03 + Math.random() * .03, rand(2500, 6500), 2, .035, 0, 'bandpass');
 }
+let crackleOn = false;
+function crackle() { if (ac && !mute && ac.state === 'running') sfx('spark'); setTimeout(crackle, rand(120, 900)); }
+addEventListener('pointerdown', () => { if (!crackleOn) { crackleOn = true; crackle(); } });
 
 // Обновление
 function update(dt) {
@@ -351,7 +372,7 @@ function drawPressArt() {
   g.fillStyle = '#5b4a3d'; const off = (job && job.ph === 0 ? time * 240 : 0) % 44;
   for (let x = -44 + off; x < px0 - 8; x += 44) g.fillRect(x, plankTop - 12, 22, 12);
   // штанга и головка: за рамой, верхняя часть прячется за балкой
-  const hw = 125, hh = hw * ph.height / ph.width, hb = lerp(beamBottom + 40, a - 106, pressY), rx = cx - 16;
+  const hw = 190, hh = hw * ph.height / ph.width, hb = lerp(beamBottom + 40, a - 106, pressY), rx = cx - 16;
   g.fillStyle = '#6f6c76'; g.fillRect(rx, fy, 32, Math.max(0, hb - hh - fy));
   g.fillStyle = 'rgba(255,255,255,.14)'; g.fillRect(rx + 6, fy, 6, Math.max(0, hb - hh - fy));
   g.drawImage(ph, cx - hw / 2, hb - hh, hw, hh);
@@ -545,7 +566,7 @@ if (Live.testMode) {
   bots = true; pn.querySelector('button:nth-of-type(8)').setAttribute('aria-pressed', 'true');
 }
 
-window.__mint = { addGift, botGift, stat: () => ({ fps, queue: queue.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
+window.__mint = { sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, stat: () => ({ fps, queue: queue.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
 resize();
 requestAnimationFrame(loop);
 })();
