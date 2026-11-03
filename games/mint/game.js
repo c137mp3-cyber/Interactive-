@@ -28,8 +28,7 @@ const LIKES = { step: 25, odds: [.50, .35, .15] };          // бронза / с
 // Чат: слово COIN (и «коин») из чата даёт бесплатную бронзовую монету, не чаще раза в CHAT.cool мс от одного зрителя
 const CHAT = { word: /coin|коин|койн|монет/i, cool: 8000,   // монета только за слово coin / коин, не чаще раза в 8 секунд от одного человека
  
-  king: /король|корол|king/i, kingCool: 3000,                       // слово подсвечивает текущего короля
-  wheel: /колес|wheel/i, wheelNeed: 8, wheelDecay: 45000, wheelUser: 15000, wheelCool: 240000 };   // колесо: 8 сообщений примерно за 45 с, бонусный оборот не чаще раза в 4 минуты
+  king: /король|корол|king/i, kingCool: 3000 };   // слово «король» подсвечивает текущего короля
 const FOLLOW = { odds: [0, .60, .35, .05] };                  // серебро / золото / рубин
 const pickTier = odds => { let r = Math.random(); for (let i = 0; i < odds.length; i++) { if ((r -= odds[i]) < 0) return i; } return odds.length - 1; };
 const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
@@ -38,7 +37,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 32;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 33;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -225,23 +224,14 @@ function onLikeUser(m) {
   likeAcc.set(uid, n % LIKES.step);
   for (let k = 0; k < Math.floor(n / LIKES.step) && k < 2; k++) freeCoin(m, 'like', pickTier(LIKES.odds));
 }
-const chatAt = new Map(), chatWheelAt = new Map();
+const chatAt = new Map();
 let signPulse = 0, kingCallAt = 0;
-const wheelChat = { v: 0, who: [], cool: 0, show: 0 };
 function onChat(m) {
   if (!m || (!m.uid && !m.user)) return;
   lanternKick = Math.max(lanternKick, .5);   // табличка качается от любого сообщения
   const text = String(m.text || ''), uid = String(m.uid || m.user), now = performance.now();
   if (CHAT.king.test(text)) {   // «король»: медальон и корона вспыхивают
     if (now - kingCallAt > CHAT.kingCool) { kingCallAt = now; kingPulse = 1; ring(W - 92, L.queueTop + 40, 150, '#ffd36b', .6, 8); if (owner) sfx('king'); }
-  }
-  if (CHAT.wheel.test(text) && now >= wheelChat.cool && !spin && !wheelQ.length && !(chatWheelAt.has(uid) && now - chatWheelAt.get(uid) < CHAT.wheelUser)) {   // «колесо»: шкала на колесе, при полной шкале один бонусный оборот
-    chatWheelAt.set(uid, now); wheelChat.v++; wheelChat.who.push({ user: String(m.user || 'Viewer'), uid, pic: m.pic || '' });
-    if (wheelChat.who.length > 30) wheelChat.who.shift();
-    if (wheelChat.v >= CHAT.wheelNeed) {
-      const w = wheelChat.who[Math.floor(Math.random() * wheelChat.who.length)];
-      queueSpin(w); wheelChat.v = 0; wheelChat.who = []; wheelChat.cool = now + CHAT.wheelCool; signPulse = 1;
-    }
   }
   if (!CHAT.word.test(text)) return;
   signPulse = 1;
@@ -572,7 +562,7 @@ function update(dt) {
   for (let i = twinkles.length - 1; i >= 0; i--) { twinkles[i].t += dt; if (twinkles[i].t > twinkles[i].d) twinkles.splice(i, 1); }
   if (spots.length && Math.random() < dt * (1.2 + spots.length * .08)) { const p = spots[Math.floor(rand(0, spots.length))]; twinkles.push({ x: p.x + rand(-22, 22), y: p.y + rand(-22, 10), t: 0, d: rand(.5, .9), s: 9 + p.tier * 4, c: TIERS[p.tier].c[0] }); }
   const ct = job && (job.ph === 4 || job.ph === 5) ? [0, .12, .3, .5, .62][job.tier] : 0; cine = lerp(cine, ct, clamp(dt * 5));
-  lvlT = Math.max(0, lvlT - dt); wheelChat.v = Math.max(0, wheelChat.v - dt * CHAT.wheelNeed / (CHAT.wheelDecay / 1000)); wheelChat.show = lerp(wheelChat.show, wheelChat.v > .05 ? 1 : 0, clamp(dt * 4));
+  lvlT = Math.max(0, lvlT - dt);
   lanternKick = Math.max(0, lanternKick - .006); shake = 0; pressShake = Math.max(0, pressShake - dt * 60); if (chestPop >= 0) chestPop += dt; if (chestPop > 2) chestPop = -1; flash = Math.max(0, flash - dt * 1.7); chestKick = Math.max(0, chestKick - dt * 4);
   wall.forEach(w => { w.swing = Math.max(0, w.swing - dt * .55); });
   for (let i = wallFall.length - 1; i >= 0; i--) { const f = wallFall[i]; f.life -= dt; f.vy += 1300 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.a += f.va * dt; if (f.life <= 0 || f.y > H + 200) wallFall.splice(i, 1); }
@@ -762,12 +752,6 @@ function drawWheel() {
     txt('=', -22, 2, 40, '#fff1a8', 'center', 5);
     txt('🎡', 44, 3, 52, '#fff', 'center', 0);
     g.restore();
-  }
-  if (!spin && wheelChat.show > .02) {   // чат копит бонусный оборот: полоска под табличкой
-    const y2 = Y + R * 2.12 + 66, p = clamp(wheelChat.v / CHAT.wheelNeed);
-    g.save(); g.globalAlpha = wheelChat.show; rr(X - 62, y2 - 8, 124, 16, 8); g.fillStyle = 'rgba(21,12,14,.88)'; g.fill();
-    if (p > .02) { rr(X - 60, y2 - 6, 120 * p, 12, 6); const gg = g.createLinearGradient(X - 60, 0, X + 60, 0); gg.addColorStop(0, '#ff9a3a'); gg.addColorStop(1, '#fff19a'); g.fillStyle = gg; g.fill(); }
-    g.lineWidth = 2; g.strokeStyle = '#d9b77a'; rr(X - 62, y2 - 8, 124, 16, 8); g.stroke(); g.restore();
   }
 }
 let wheelIcon = null;
@@ -1692,7 +1676,7 @@ if (Live.testMode) {
   botTick();
 }
 
-window.__mint = { onChat, wheelChat, CHAT, setValue: v => { value = v; }, coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, lid: () => ({ b: !!build, t: lidT, fly: lidFly }), spin: () => spin && { t: spin.t, done: spin.done, k: spin.k }, wheel: m => { addGift(m); queueSpin(m); }, sounds: () => Object.keys(sbuf), music: () => music && { src: music.src, paused: music.paused, t: music.currentTime, vol: music.volume }, stat: () => ({ fountain: tiny.filter(p => p.spin && p.y < H + 60).length, lidFly, chestPop, slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
+window.__mint = { onChat, CHAT, setValue: v => { value = v; }, coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, lid: () => ({ b: !!build, t: lidT, fly: lidFly }), spin: () => spin && { t: spin.t, done: spin.done, k: spin.k }, wheel: m => { addGift(m); queueSpin(m); }, sounds: () => Object.keys(sbuf), music: () => music && { src: music.src, paused: music.paused, t: music.currentTime, vol: music.volume }, stat: () => ({ fountain: tiny.filter(p => p.spin && p.y < H + 60).length, lidFly, chestPop, slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
 resize();
 requestAnimationFrame(loop);
 })();
