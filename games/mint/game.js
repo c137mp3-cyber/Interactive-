@@ -24,9 +24,10 @@ const ENGRAVE = { on: true, color: .1, relief: 2.4, tone: .32, lines: .7 };   //
 // Комбо: подарки одного зрителя с паузой не больше COMBO.gap мс; на ×5 монета на ступень дороже, на ×10 ещё на ступень
 const COMBO = { gap: 20000, max: 10, steps: [5, 10] };
 // Бесплатные монеты: за каждые LIKES.step лайков от одного зрителя и за первую подписку в эфире. Двигают полосу на +1
-const LIKES = { step: 500, odds: [.50, .35, .15] };          // бронза / серебро / золото
+const LIKES = { step: 25, odds: [.50, .35, .15] };          // бронза / серебро / золото
 // Чат: слово COIN (и «коин») из чата даёт бесплатную бронзовую монету, не чаще раза в CHAT.cool мс от одного зрителя
-const CHAT = { word: /coin|коин|койн/i, cool: 30000, queueMax: 30,
+const CHAT = { cool: 8000,   // любое сообщение = монета, раз в 8 секунд от одного человека
+ 
   king: /король|корол|king/i, kingCool: 3000,                       // слово подсвечивает текущего короля
   wheel: /колес|wheel/i, wheelNeed: 8, wheelDecay: 45000, wheelUser: 15000, wheelCool: 240000 };   // колесо: 8 сообщений примерно за 45 с, бонусный оборот не чаще раза в 4 минуты
 const FOLLOW = { odds: [0, .60, .35, .05] };                  // серебро / золото / рубин
@@ -37,7 +38,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 30;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 31;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -214,12 +215,15 @@ function addGift(m) {
   donors.set(j.uid, d);
   topDonors = [...donors.values()].sort((a, b) => b.sum - a.sum).slice(0, 3);
 }
+// Бесплатные монеты (чат, лайки) берутся, только пока нет платных подарков и очереди: подарки всегда в приоритете
+const freeRoom = () => queue.length < 2 && !queue.some(j => !j.free);
 function freeCoin(m, src, tier) { addGift({ user: m.user, uid: m.uid || m.user, pic: m.pic, coins: 1, count: 1, free: true, tier, src }); }
 function onLikeUser(m) {
   if (!m.uid && !m.user) return;
   const uid = String(m.uid || m.user), n = (likeAcc.get(uid) || 0) + (+m.count || 1);
+  if (!freeRoom()) { likeAcc.set(uid, Math.min(n, LIKES.step * 2)); return; }   // идут платные подарки или очередь: лайки копятся, монета потом
   likeAcc.set(uid, n % LIKES.step);
-  for (let k = 0; k < Math.floor(n / LIKES.step) && k < 3; k++) freeCoin(m, 'like', pickTier(LIKES.odds));
+  for (let k = 0; k < Math.floor(n / LIKES.step) && k < 2; k++) freeCoin(m, 'like', pickTier(LIKES.odds));
 }
 const chatAt = new Map(), chatWheelAt = new Map();
 let signPulse = 0, kingCallAt = 0;
@@ -230,22 +234,17 @@ function onChat(m) {
   const text = String(m.text || ''), uid = String(m.uid || m.user), now = performance.now();
   if (CHAT.king.test(text)) {   // «король»: медальон и корона вспыхивают
     if (now - kingCallAt > CHAT.kingCool) { kingCallAt = now; kingPulse = 1; ring(W - 92, L.queueTop + 40, 150, '#ffd36b', .6, 8); if (owner) sfx('king'); }
-    return;
   }
-  if (CHAT.wheel.test(text)) {   // «колесо»: шкала на колесе, при полной шкале один бонусный оборот
-    if (now < wheelChat.cool || spin || wheelQ.length) return;
-    if (chatWheelAt.has(uid) && now - chatWheelAt.get(uid) < CHAT.wheelUser) return;
+  if (CHAT.wheel.test(text) && now >= wheelChat.cool && !spin && !wheelQ.length && !(chatWheelAt.has(uid) && now - chatWheelAt.get(uid) < CHAT.wheelUser)) {   // «колесо»: шкала на колесе, при полной шкале один бонусный оборот
     chatWheelAt.set(uid, now); wheelChat.v++; wheelChat.who.push({ user: String(m.user || 'Viewer'), uid, pic: m.pic || '' });
     if (wheelChat.who.length > 30) wheelChat.who.shift();
     if (wheelChat.v >= CHAT.wheelNeed) {
       const w = wheelChat.who[Math.floor(Math.random() * wheelChat.who.length)];
       queueSpin(w); wheelChat.v = 0; wheelChat.who = []; wheelChat.cool = now + CHAT.wheelCool; signPulse = 1;
     }
-    return;
   }
-  if (!CHAT.word.test(text)) return;
   signPulse = 1;
-  if ((chatAt.has(uid) && now - chatAt.get(uid) < CHAT.cool) || queue.length > CHAT.queueMax) return;
+  if ((chatAt.has(uid) && now - chatAt.get(uid) < CHAT.cool) || !freeRoom()) return;
   chatAt.set(uid, now); freeCoin(m, 'chat', 0);
 }
 function onFollow(m) {
@@ -650,7 +649,13 @@ function drawStrikeLight() {
 const WHEEL = { gifts: [], coins: 99, x: 940, y: 1125, r: 100,
   prizes: [5, 25, 10, 50, 15, 100, 20, 30],          // по часовой, начиная сверху
   odds:   [20, 12, 18, 6, 16, 2, 14, 12] };          // веса: +100 редко, +5 часто
-const camT = { x: 940, y: 1125, z: 1.75 }, camF = { x: 940, y: 1125, z: 1.75 };
+const camT = { x: 940, y: 1125, z: 1.5 }, camF = { x: 940, y: 1125, z: 1.5 };
+// Колесо стоит на полу справа внизу, на свободном месте между чатом TikTok (слева) и нижней панелью. Крупнее прежнего
+function placeWheel() {
+  const R = 140, bottom = (SCH * .93 - oy) / scale;   // нижняя граница видимого пола в координатах сцены
+  WHEEL.r = R; WHEEL.x = Math.min(915, (SCW - ox) / scale - R * 1.3);
+  WHEEL.y = clamp(bottom - R * 2.5, 1330, 1590);
+}
 const wheelQ = []; let spin = null, wheelAng = 0, cam = 0, wheelTick = -1;
 const isWheelGift = m => WHEEL.gifts.length ? WHEEL.gifts.includes(m.name) : (+m.coins === WHEEL.coins);
 function queueSpin(m) { wheelQ.push({ user: String(m.user || 'Viewer'), uid: String(m.uid || m.user || 'v'), pic: m.pic || '' }); }
@@ -664,9 +669,10 @@ function startSpin() {
   sfx('whoosh');
 }
 function updateSpin(dt) {
+  placeWheel();
   const dia = job && job.tier === 4 && (job.ph === 4 || job.ph === 5);
   const zoomTo = spin || dia ? 1 : 0; cam = lerp(cam, zoomTo, clamp(dt * (zoomTo ? 2.4 : 3)));
-  if (spin) Object.assign(camT, { x: WHEEL.x, y: WHEEL.y, z: 1.75 }); else if (dia) Object.assign(camT, { x: L.cx, y: L.heroY, z: 1.22 });
+  if (spin) Object.assign(camT, { x: WHEEL.x, y: WHEEL.y, z: 1.5 }); else if (dia) Object.assign(camT, { x: L.cx, y: L.heroY, z: 1.22 });
   camF.x = lerp(camF.x, camT.x, clamp(dt * 4)); camF.y = lerp(camF.y, camT.y, clamp(dt * 4)); camF.z = lerp(camF.z, camT.z, clamp(dt * 4));
   if (!spin) { wheelAng += Math.sin(time * .6) * .002; if (wheelQ.length && !job && !build && burstHold <= 0 && !flyers.length) startSpin(); return; }
   const sp = spin; sp.t += dt;
@@ -697,13 +703,13 @@ function drawWheel() {
   const sway = act ? 0 : Math.sin(time * 1.1) * .02;
   // подставка
   g.save(); g.translate(X, Y); g.rotate(sway * .3);
-  g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(0, R + 118, R * 1.1, 16, 0, 0, TAU); g.fill();
+  g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(0, R * 1.18, R * 1.1, R * .16, 0, 0, TAU); g.fill();
   const SK = R / 242;   // кольцо подставки: центр (342,440), радиус 242 в пикселях wheel_stand.png
   if (art.wheel_stand) g.drawImage(art.wheel_stand, -342 * SK, -440 * SK, art.wheel_stand.width * SK, art.wheel_stand.height * SK);
   else {
     g.fillStyle = '#4a2d18'; g.strokeStyle = '#1e1008'; g.lineWidth = 5;
-    g.beginPath(); g.moveTo(-20, 0); g.lineTo(-R * .75, R + 112); g.lineTo(-R * .5, R + 112); g.lineTo(0, 20); g.lineTo(R * .5, R + 112); g.lineTo(R * .75, R + 112); g.lineTo(20, 0); g.closePath(); g.fill(); g.stroke();
-    rr(-R * .95, R + 100, R * 1.9, 26, 8); g.fillStyle = '#6b4426'; g.fill(); g.stroke();
+    g.beginPath(); g.moveTo(-20, 0); g.lineTo(-R * .75, R * 1.12); g.lineTo(-R * .5, R * 1.12); g.lineTo(0, 20); g.lineTo(R * .5, R * 1.12); g.lineTo(R * .75, R * 1.12); g.lineTo(20, 0); g.closePath(); g.fill(); g.stroke();
+    rr(-R * .95, R + 100 * R / 100, R * 1.9, 26, 8); g.fillStyle = '#6b4426'; g.fill(); g.stroke();
   }
   g.restore();
   // колесо
@@ -741,18 +747,26 @@ function drawWheel() {
     g.beginPath(); g.moveTo(-14, -22); g.lineTo(14, -22); g.lineTo(0, 12); g.closePath(); g.fillStyle = '#e8b923'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#5a3606'; g.stroke();
     g.restore();
   }
-  // табличка: какой подарок крутит колесо
+  // отдельная табличка под колесом: какой подарок его крутит (значок подарка из каталога TikTok)
   if (!spin) {
-    const ic = wheelIcon, y = Y + R + 62 + Math.sin(time * 2.4) * 3;
-    rr(X - 58, y - 22, 116, 44, 22); g.fillStyle = 'rgba(21,12,14,.85)'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#d9b77a'; g.stroke();
-    if (ic && ic.complete && ic.naturalWidth) g.drawImage(ic, X - 52, y - 19, 38, 38); else txt('🎁', X - 33, y + 1, 26, '#fff', 'center', 0);
-    txt('= 🎡', X + 18, y + 1, 24, '#fff1a8', 'center', 0);
+    const ic = wheelIcon, k = R / 100, pw = 250, ph = 92, py = Y + R * 2.12 + Math.sin(time * 1.7) * 2;
+    g.save(); g.translate(X, py); g.rotate(Math.sin(time * 1.3) * .012);
+    g.fillStyle = 'rgba(0,0,0,.4)'; rr(-pw / 2 + 5, -ph / 2 + 9, pw, ph, 14); g.fill();
+    const wd = g.createLinearGradient(0, -ph / 2, 0, ph / 2); wd.addColorStop(0, '#7a4e2a'); wd.addColorStop(1, '#4a2d18');
+    rr(-pw / 2, -ph / 2, pw, ph, 14); g.fillStyle = wd; g.fill(); g.lineWidth = 5; g.strokeStyle = '#1e1008'; g.stroke();
+    rr(-pw / 2 + 7, -ph / 2 + 7, pw - 14, ph - 14, 9); g.lineWidth = 2.5; g.strokeStyle = '#d9a82e'; g.stroke();
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sy]) => { g.fillStyle = '#c9a65a'; g.beginPath(); g.arc(sx * (pw / 2 - 15), sy * (ph / 2 - 15), 3.5, 0, TAU); g.fill(); });
+    g.fillStyle = 'rgba(14,8,10,.7)'; g.beginPath(); g.arc(-72, 0, 31, 0, TAU); g.fill(); g.lineWidth = 3; g.strokeStyle = '#ffd36b'; g.stroke();
+    if (ic && ic.complete && ic.naturalWidth) g.drawImage(ic, -72 - 26, -26, 52, 52); else txt('🎁', -72, 2, 40, '#fff', 'center', 0);
+    txt('=', -22, 2, 40, '#fff1a8', 'center', 5);
+    txt('🎡', 44, 3, 52, '#fff', 'center', 0);
+    g.restore();
   }
   if (!spin && wheelChat.show > .02) {   // чат копит бонусный оборот: полоска под табличкой
-    const y2 = Y + R + 104, p = clamp(wheelChat.v / CHAT.wheelNeed);
-    g.save(); g.globalAlpha = wheelChat.show; rr(X - 52, y2 - 7, 104, 14, 7); g.fillStyle = 'rgba(21,12,14,.88)'; g.fill();
-    if (p > .02) { rr(X - 50, y2 - 5, 100 * p, 10, 5); const gg = g.createLinearGradient(X - 50, 0, X + 50, 0); gg.addColorStop(0, '#ff9a3a'); gg.addColorStop(1, '#fff19a'); g.fillStyle = gg; g.fill(); }
-    g.lineWidth = 2; g.strokeStyle = '#d9b77a'; rr(X - 52, y2 - 7, 104, 14, 7); g.stroke(); g.restore();
+    const y2 = Y + R * 2.12 + 66, p = clamp(wheelChat.v / CHAT.wheelNeed);
+    g.save(); g.globalAlpha = wheelChat.show; rr(X - 62, y2 - 8, 124, 16, 8); g.fillStyle = 'rgba(21,12,14,.88)'; g.fill();
+    if (p > .02) { rr(X - 60, y2 - 6, 120 * p, 12, 6); const gg = g.createLinearGradient(X - 60, 0, X + 60, 0); gg.addColorStop(0, '#ff9a3a'); gg.addColorStop(1, '#fff19a'); g.fillStyle = gg; g.fill(); }
+    g.lineWidth = 2; g.strokeStyle = '#d9b77a'; rr(X - 62, y2 - 8, 124, 16, 8); g.stroke(); g.restore();
   }
 }
 let wheelIcon = null;
@@ -776,7 +790,7 @@ function drawLantern() {
 }
 
 // Бумажная табличка на цепях: «Напиши в чат» + COIN. Слово из чата даёт бесплатную монету. Качается, при слове вспыхивает
-const SIGN = { dx: 130, w: 250, h: 160, small: 'Напиши в чат', text: 'COIN' };
+const SIGN = { dx: 190, w: 250, h: 160, small: 'Напиши в чат', text: 'COIN' };
 let signPaper = null;
 function paperSign() {   // пергамент рисуется кодом один раз; если положить assets/sign_paper.png — возьмётся картинка (только бумага, текст кодом)
   if (signPaper) return signPaper;
