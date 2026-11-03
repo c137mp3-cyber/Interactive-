@@ -37,13 +37,13 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'shelf_post', 'shelf_board', 'shelf_top', 'bag_1', 'bag_2', 'bag_3', 'bag_4', 'bag_5', 'bag_6', 'name_paper', 'empty_slot', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 38;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 39;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
 // Экран: заполняем его целиком, без чёрных полос
 const W = 1080, H = 1400;          // сцена: все координаты считаются в ней
-const MINT_SHIFT = 70;   // на сколько сдвинуть механизм влево (в единицах сцены), чтобы справа уместилась Казна
+const MINT_SHIFT = 120;   // на сколько сдвинуть механизм влево (в единицах сцены), чтобы справа уместилась Казна
 const SAFE = { top: .13, bottom: .72 }; // TikTok закрывает верх (шапка) и низ (чат): игра живёт между ними
 const HOLE = .70;                     // диаметр отверстия в рамках монет, доля от диаметра монеты
 const CHEST_W = 600;
@@ -1307,7 +1307,7 @@ const plaqueY = new Map();
 // ===== Казна: личные мешки зрителей на стеллаже-лифте справа =====
 // Каждая монета, упавшая в сундук, ещё и копится в мешке своего хозяина. Мешки растут по уровням, богатые выше.
 // Стеллаж едет вверх-вниз: в тишине показывает всех по очереди, на событие подъезжает к мешку того, кто его сделал.
-const KAZNA = { lv: [1, 10, 50, 200, 500, 1000], x0: 820, top: 340, row: [1, 2, 3, 3, 4], size: [0, 165, 128, 128, 100], idle: 26, focusT: 2.6, maxW: 520 };
+const KAZNA = { lv: [1, 10, 50, 200, 500, 1000], x0: 880, top: 340, row: [1, 2, 3, 3, 4], size: [0, 165, 128, 128, 100], idle: 26, focusT: 2.6, maxW: 520 };
 const COLORS = [[/красн|\bred\b/i, '#d8402f'], [/оранж|orange/i, '#ee8a2a'], [/ж[её]лт|yellow/i, '#e9c53a'], [/золот|gold/i, '#e0a920'], [/зел[её]н|green/i, '#43a84a'],
   [/голуб|cyan/i, '#4fb6e6'], [/син|blue/i, '#3b63d6'], [/фиол|purple|violet/i, '#8a4fd0'], [/розов|pink/i, '#ea6aa8'], [/ч[её]рн|black/i, '#3a3236'], [/бел|white/i, '#f2efe8']];
 const DEFCOL = ['#c9a27a', '#b9b0a4', '#a3b8a2', '#b9a3c4', '#c7a3a0', '#a3b4c6', '#c4b48a'];   // мягкие оттенки, пока зритель не выбрал свой
