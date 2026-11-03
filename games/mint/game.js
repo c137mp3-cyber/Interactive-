@@ -24,7 +24,7 @@ const ENGRAVE = { on: true, color: .1, relief: 2.4, tone: .32, lines: .7 };   //
 // Комбо: подарки одного зрителя с паузой не больше COMBO.gap мс; на ×5 монета на ступень дороже, на ×10 ещё на ступень
 const COMBO = { gap: 20000, max: 10, steps: [5, 10] };
 // Бесплатные монеты: за каждые LIKES.step лайков от одного зрителя и за первую подписку в эфире. Двигают полосу на +1
-const LIKES = { step: 25, odds: [.50, .35, .15] };          // бронза / серебро / золото
+const LIKES = { step: 150, odds: [.55, .42, .03] };         // монета за каждые 150 лайков: бронза / серебро / очень редко золото
 // Чат: слово COIN (и «коин») из чата даёт бесплатную бронзовую монету, не чаще раза в CHAT.cool мс от одного зрителя
 const CHAT = { word: /coin|коин|койн|монет/i, cool: 8000,   // монета только за слово coin / коин, не чаще раза в 8 секунд от одного человека
  
@@ -37,7 +37,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'shelf_post', 'shelf_board', 'shelf_top', 'bag_1', 'bag_2', 'bag_3', 'bag_4', 'bag_5', 'bag_6', 'name_paper', 'empty_slot', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 42;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 43;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -869,6 +869,49 @@ function drawSign() {
   if (signPulse > .01) { halo(sx, sy, 250, '#ffd36b', .45 * signPulse); star(sx + Math.sin(time * 30) * 80, sy - 10, 22 * signPulse, signPulse, '#fff1a8'); }
   halo(sx, G.by - 60, 260, '#ff9a4a', .06);   // тёплый отсвет печи на начале ленты
 }
+// Табличка-подсказка для зрителей: листает, что можно делать в чате. Висит над стеллажом, правее крючков
+const TIPS = [
+  ['МОНЕТА ЗА ЧАТ', 'Напиши в чат coin или коин, и в сундук упадёт твоя монета с твоим портретом.'],
+  ['ЛАЙКИ', 'Каждые 150 лайков дают монету. Чаще бронзовую или серебряную, очень редко золотую.'],
+  ['ЦВЕТ МЕШОЧКА', 'Напиши цвет: красный, синий, зелёный, золотой, фиолетовый, розовый, чёрный. Твой мешочек перекрасится.'],
+  ['ТВОЙ МЕШОЧЕК', 'Все твои монеты копятся в личном мешочке на стеллаже справа. Чем больше, тем он крупнее.'],
+  ['КОРОЛЬ', 'Самый богатый мешочек уходит в нишу короля. Напиши «король», и корону позвонят в колокол.'],
+  ['ПОДАРКИ', 'Подарок становится монетой с твоим портретом. Чем дороже подарок, тем ценнее металл.'],
+  ['КОЛЕСО ФОРТУНЫ', 'Подарок с таблички под колесом крутит его: до +100 монет в твой мешочек.'],
+];
+let tipT = 0;
+function wrapLines(str, maxW) {
+  const out = []; let cur = '';
+  for (const w of str.split(' ')) { const t = cur ? cur + ' ' + w : w; if (g.measureText(t).width > maxW && cur) { out.push(cur); cur = w; } else cur = t; }
+  if (cur) out.push(cur); return out;
+}
+function drawTips(dt) {
+  const G = kGeo(), im = art.sign_paper; if (!im) return;
+  tipT += dt;
+  const per = 7.5, k = Math.floor(tipT / per) % TIPS.length, u = (tipT % per), fade = clamp(Math.min(u / .5, (per - u) / .5));
+  const w = Math.min(350, G.w - 90), h = w * im.height / im.width, cx = G.x1 - w / 2 - 6, top = 52;
+  const sw = Math.sin(time * .9) * .012;
+  // деревянная планка на двух верёвках и бумага на ней
+  const bw = w * .46, ry = h * .127, cw = w * .418;
+  g.save(); g.translate(cx, top); g.rotate(sw);
+  g.strokeStyle = '#6b4a2a'; g.lineWidth = 4; g.lineCap = 'round';
+  [-bw + 14, bw - 14].forEach(nx => { g.beginPath(); g.moveTo(nx, -top + 6); g.lineTo(nx, 0); g.stroke(); });
+  g.fillStyle = 'rgba(0,0,0,.35)'; rr(-bw - 6, 2, bw * 2 + 12, 18, 6); g.fill();
+  const wd = g.createLinearGradient(0, -8, 0, 12); wd.addColorStop(0, '#7a4e2a'); wd.addColorStop(1, '#3a2212');
+  rr(-bw - 8, -8, bw * 2 + 16, 18, 6); g.fillStyle = wd; g.fill(); g.lineWidth = 3; g.strokeStyle = '#1e1008'; g.stroke();
+  g.strokeStyle = '#6b4a2a'; g.lineWidth = 5; [-cw, cw].forEach(nx => { g.beginPath(); g.moveTo(nx, 8); g.lineTo(nx, 22); g.stroke(); });
+  g.translate(0, 22 + h / 2 - ry);
+  g.drawImage(im, -w / 2, -h / 2, w, h);
+  [-cw, cw].forEach(nx => { g.beginPath(); g.arc(nx, -h / 2 + ry, 6, 0, TAU); g.fillStyle = '#2b2623'; g.fill(); g.lineWidth = 2.5; g.strokeStyle = '#8c7a66'; g.stroke(); });
+  g.globalAlpha = fade; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = `800 ${Math.round(w * .075)}px ${FONT}`; g.fillStyle = '#7a3a12'; g.fillText(TIPS[k][0], 0, -h * .27);
+  g.font = `700 ${Math.round(w * .066)}px ${FONT}`; g.fillStyle = '#3d2410';
+  const ls = wrapLines(TIPS[k][1], w * .72), lh = w * .085, y0 = h * .06 - (ls.length - 1) * lh / 2;
+  ls.forEach((l, i) => g.fillText(l, 0, y0 + i * lh));
+  g.globalAlpha = 1;
+  for (let i = 0; i < TIPS.length; i++) { g.fillStyle = i === k ? '#7a3a12' : 'rgba(61,36,16,.3)'; g.beginPath(); g.arc((i - (TIPS.length - 1) / 2) * 12, h * .36, 3.2, 0, TAU); g.fill(); }
+  g.restore();
+}
 function drawSpinOverlay() {
   if (cam < .01 || camT.x !== WHEEL.x || camT.y !== WHEEL.y) return;
   g.fillStyle = `rgba(6,3,9,${cam * .55})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120);
@@ -1656,7 +1699,7 @@ function drawLid(a) {
   g.restore();
 }
 // Счётчик «до взрыва»: сколько монет осталось до разрыва сундука. Последние 10 — горит и пульсирует
-const COUNTER = { r: 50, hot: 10 };
+const COUNTER = { r: 40, hot: 10 };
 let counterShow = 1, counterLast = -1, counterKick = 0;
 function drawCounter(x, y, rem, goal) {
   counterShow = lerp(counterShow, build ? 0 : 1, clamp(.2));
@@ -1683,16 +1726,11 @@ function drawCounter(x, y, rem, goal) {
 }
 function drawChest() {
   const cx = L.cx, t = L.chestTop, b = L.chestBot, kick = chestKick * 12, W2 = 310;
-  // прогресс
-  const goal = GOALS[Math.min(level, GOALS.length - 1)], py = L.goalY, pw = 620;
-  rr(cx - pw / 2, py - 19, pw, 38, 19); g.fillStyle = 'rgba(14,8,10,.85)'; g.fill();
-  // полоска следует за реально упавшими монетами; в цепочке (value >= goal) за тем, сколько уже насыпано в новый сундук
+  // прогресс: полоски больше нет, счётчик «до взрыва» висит на сундуке; barV по-прежнему следует за упавшими монетами
+  const goal = GOALS[Math.min(level, GOALS.length - 1)];
   const bt = value >= goal ? Math.min(goal, Math.max(0, pileN - flyers.length)) : Math.min(goal, value + landedExtra);
-  barV = lerp(barV, bt, .12); const p = clamp(barV / goal);
-  if (p > .02) { rr(cx - pw / 2 + 4, py - 15, (pw - 8) * p, 30, 15); const m = g.createLinearGradient(cx - pw / 2, 0, cx + pw / 2, 0); m.addColorStop(0, '#ffb12b'); m.addColorStop(1, '#fff19a'); g.fillStyle = m; g.fill(); }
-  txt(Math.min(Math.round(barV), goal) + ' / ' + goal, cx, py + 1, 25, '#fff', 'center', 5);
-  txt('★' + (level + 1), cx - pw / 2 + 36, py + 1, 22, 'rgba(255,241,168,.9)');
-  drawCounter(cx - pw / 2 - 40, py, Math.max(0, goal - Math.round(barV)), goal);
+  barV = lerp(barV, bt, .12);
+  const remN = Math.max(0, goal - Math.round(barV));
   if (L.art) {
     const a = L.art, base = a.y + a.h, k = 1 + kick * .004;
     let sx = k, sy = 2 - k, dx = 0, dy = 0;
@@ -1708,6 +1746,7 @@ function drawChest() {
     else g.drawImage(mound, cx - MW / 2, L.mBase - MH);
     drawLid(a);
     g.drawImage(art.chest_front, a.x, a.fy, a.w, a.fh);
+    drawCounter(cx, a.fy + a.fh * .68, remN, goal);   // медальон на передней стенке сундука, двигается вместе с ним
     g.restore(); return;
   }
   g.save(); g.translate(cx, b); const k = 1 + kick * .004; g.scale(k, 2 - k); g.translate(-cx, -b);
@@ -1807,7 +1846,7 @@ function draw() {
   g.save();
   drawDust(); drawLegend(); drawWall(); drawPress(); if (SIGN.on) drawSign(); drawStrikeLight(); drawLevelRays(); drawChestShadow();
   drawChest();   // сияния над закрытым сундуком нет: крышка закрыта, свет только при взрыве
-  drawTwinkles(); drawQueue(); drawKazna();
+  drawTwinkles(); drawQueue(); drawKazna(); drawTips(frameDt || .016);
   drawWheel();
   drawSpinOverlay();
   if (cine > .01) { g.fillStyle = `rgba(6,3,9,${cine})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120); }
