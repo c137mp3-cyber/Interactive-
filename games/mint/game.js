@@ -16,6 +16,7 @@ const TIERS = [
   { id: 'diamond', min: 500, name: 'Galaxy',       emoji: '🌌', c: ['#ecfdff', '#5cdcf8', '#2868d0'], burst: 70 }
 ];
 const tierOf = coins => { let n = 0; TIERS.forEach((t, i) => { if (coins >= t.min) n = i; }); return n; };
+const MAX_CHESTS = 3;   // одна монета наполняет не больше стольких сундуков подряд, остальное сгорает
 const GOALS = [100];   // сколько монет нужно на каждый взрыв сундука; можно задать рост: [100, 300, 700]
 // Гравировка: картинка или буква зрителя переводится в цвет металла монеты с рельефом
 const ENGRAVE = { on: true, color: .1, relief: 2.4, tone: .32, lines: .7 };   // color: сколько оставить родного цвета фото
@@ -29,9 +30,9 @@ const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
 const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
-const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_lid', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
+const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 21;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 23;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -244,6 +245,7 @@ function nextPhase() {
   if (j.ph === 5) heroStart(j);
   if (j.ph === 5) { sfx('ta', j.tier); if (j.tier >= 2) burst(L.cx, L.heroY, TIERS[j.tier], TIERS[j.tier].burst, 700); if (j.tier >= 3) { flash = j.tier === 4 ? .5 : .25; flashColor = TIERS[j.tier].c[1]; } }
   if (j.ph === 6) {   // в сундук падает столько монет, сколько стоит подарок, и на каждой лицо дарителя
+    j.value = Math.min(j.value, curGoal() * MAX_CHESTS);
     const n = Math.min(80, Math.max(1, j.value)), sp = j.sprite;
     const w = j.value / n; j.flyW = (n - 1) * w;
     const S = n > 1 ? pourCoins(n - 1, () => sp, L.cx, L.heroY, .08, 1, { w }) : 0; if (n > 6) sfx('pour');
@@ -287,7 +289,7 @@ function addWall(j) {
   rest.slice(7).forEach(dropMedal);
 }
 function startBuild() {
-  build = { t: 0, d: chain ? 1.0 : 1.6, next: 0 }; lidT = 0; sfx('build');
+  build = { t: 0, d: chain ? .9 : 1.6, next: 0 }; lidT = 0; sfx('build');
   if (lastLander) { const b = (ownerWins.get(lastLander.uid) || 0) + 1; ownerWins.set(lastLander.uid, b); owner = { uid: lastLander.uid, user: lastLander.user, b, at: performance.now() + 1300 }; }
 }
 // Сундук переполнен: дрожит, светится и взрывается фонтаном монет
@@ -506,12 +508,18 @@ function update(dt) {
     if (build.next <= 0) { build.next = rand(.07, .14); sfx('clink', 1); if (lidT < .25 && Math.random() < .6) tiny.push({ sprite: chestCoins.length ? chestCoins[Math.floor(rand(0, chestCoins.length))] : blankCoin(0), x: L.cx + rand(-L.slotHW, L.slotHW), y: L.pileY, vx: rand(-120, 120), vy: -rand(350, 650), r: rand(16, 26), a: rand(0, TAU), va: rand(-8, 8), life: 1.2 }); }
     if (build.t >= build.d) { build = null; doBurst(); }
   }
-  if (build) lidT += dt; if (lidFly >= 0) { lidFly += dt; if (lidFly > 1.3) lidFly = -1; }
+  if (build) { lidT += dt; if (!build.hit && lidT >= DOME.fall) {   // удар крышки о сундук
+    build.hit = 1; sfx('clank', 1); chestKick = 1; pressShake = Math.max(pressShake, 6);
+    ring(L.cx, L.pileY + 10, 330, '#ffe3a0', .35, 8); puff(L.cx - 260, L.pileY + 30, 4); puff(L.cx + 260, L.pileY + 30, 4);
+  } }
+  if (lidFly >= 0) { lidFly += dt; if (lidFly > 1.3) lidFly = -1; }
   burstHold = Math.max(0, burstHold - dt); lvlBadge = Math.max(0, lvlBadge - dt);
-  if (!build && !job && !spin && cam < .03 && burstHold <= 0 && !flyers.length && value >= curGoal()) startBuild();
-  if (!build && !job && !spin && burstHold <= 0 && !flyers.length && pileN < Math.min(value, curGoal() + PILE.extra)) {   // остаток после взрыва: монеты того, кто взорвал
-    const sp = carry || (sprites.length ? sprites[sprites.length - 1].s : blankCoin(0));
-    pourCoins(Math.min(80, Math.min(value, curGoal() + PILE.extra) - pileN), () => sp, L.cx, L.pileY - 420);
+  // сундук закрывается только когда он реально полон монетами; в цепочке сначала досыпаем монеты того, кто переполнил
+  if (!build && !job && !spin && cam < .03 && burstHold <= 0 && !flyers.length && value >= curGoal() && pileN >= curGoal() + PILE.extra) startBuild();
+  else if (!build && !job && !spin && burstHold <= 0 && !flyers.length && pileN < Math.min(value, curGoal() + PILE.extra)) {
+    const sp = carry || (sprites.length ? sprites[sprites.length - 1].s : blankCoin(0)), n = Math.min(100, Math.min(value, curGoal() + PILE.extra) - pileN);
+    pourCoins(n, () => sp, L.cx, L.pileY - 420, 0, chain ? .45 : 1);
+    if (n > 6) sfx('pour');
   }
   updateBelt(dt); updateSpin(dt); updateAmbient(dt); updateMusic(dt); updateDust(dt);
   if (!job) startNext();
@@ -960,10 +968,10 @@ function beltGeo() {
   const fx = cx - (hole[0] + hole[2]) / 2 * sf, px0 = fx + hole[0] * sf, post = fx + 70 * sf;
   const p = bgToStage(64, 0), bx0 = p ? p.x : 80, f = bgToStage(0, 900);
   const bh = art.belt ? art.belt.height * BELT.scale : 30, by = plankTop - 18;
-  return { bx0, px0, post, by, bh, endX: post - BELT.r - 6, cy: by + 5 - BELT.r, floor: f ? f.y : by + 260 };
+  return { bx0, ax: bx0 - 46, px0, post, by, bh, endX: post - BELT.r - 6, cy: by + 5 - BELT.r, floor: f ? f.y : by + 260 };
 }
 function updateBelt(dt) {
-  const G = beltGeo(), spawnX = G.bx0 - BELT.r - 30;   // монета появляется глубоко в арке и выезжает из темноты
+  const G = beltGeo(), spawnX = G.ax - BELT.r * .55;   // монета появляется глубоко в арке, маленькой и тёмной, и выезжает на свет
   // из арки выходит следующая монета, если на ленте есть место
   if (queue.length && belt.length < BELT.n) {
     sortQueue(); const j = queue.shift(), last = belt[belt.length - 1];
@@ -980,7 +988,7 @@ function updateBelt(dt) {
   beltScroll += beltV * dt;
 }
 function drawBelt() {
-  const G = beltGeo(), { bx0, px0, by, bh } = G;
+  const G = beltGeo(), { bx0, ax, px0, by, bh } = G;
   // ножки до пола, с тенью
   if (art.leg) {
     const top = by + bh * .55, h = clamp(G.floor - top, 120, 460), w = h * art.leg.width / art.leg.height;
@@ -994,32 +1002,34 @@ function drawBelt() {
     });
   }
   if (art.belt) {   // лента рисуется в отдельный слой и плавно растворяется в темноте арки, без тёмного прямоугольника
-    const bw = art.belt.width * BELT.scale, off = beltScroll % bw, lw = px0 + 4 - bx0, lh = bh + 8, rs = scale * dpr;
+    const bw = art.belt.width * BELT.scale, off = beltScroll % bw, lw = px0 + 4 - ax, lh = bh + 8, rs = scale * dpr;
     if (!beltLayer) beltLayer = document.createElement('canvas');
     const cw = Math.max(2, Math.ceil(lw * rs)), ch = Math.max(2, Math.ceil(lh * rs));
     if (beltLayer.width !== cw || beltLayer.height !== ch) { beltLayer.width = cw; beltLayer.height = ch; }
     const bc = beltLayer.getContext('2d');
     bc.setTransform(1, 0, 0, 1, 0, 0); bc.globalCompositeOperation = 'source-over'; bc.clearRect(0, 0, cw, ch);
-    bc.setTransform(rs, 0, 0, rs, -bx0 * rs, -(by - 4) * rs);
-    for (let x = off - bw + bx0 - (bx0 % bw); x < px0 + 4; x += bw) bc.drawImage(art.belt, x, by, bw + 1, bh);
-    const k = .16 + .05 * Math.sin(time * 7) + .03 * Math.sin(time * 17), gl = bc.createLinearGradient(bx0, 0, bx0 + 300, 0);
+    bc.setTransform(rs, 0, 0, rs, -ax * rs, -(by - 4) * rs);
+    for (let x = off - bw + ax - (ax % bw); x < px0 + 4; x += bw) bc.drawImage(art.belt, x, by, bw + 1, bh);
+    const k = .16 + .05 * Math.sin(time * 7) + .03 * Math.sin(time * 17), gl = bc.createLinearGradient(ax, 0, ax + 300, 0);
     gl.addColorStop(0, `rgba(255,90,40,${k * 1.6})`); gl.addColorStop(1, 'rgba(255,90,40,0)');
-    bc.globalCompositeOperation = 'source-atop'; bc.fillStyle = gl; bc.fillRect(bx0, by - 4, 300, lh);
-    const fd = bc.createLinearGradient(bx0, 0, bx0 + 130, 0); fd.addColorStop(0, 'rgba(0,0,0,0)'); fd.addColorStop(.3, 'rgba(0,0,0,.3)'); fd.addColorStop(1, 'rgba(0,0,0,1)');
-    bc.globalCompositeOperation = 'destination-in'; bc.fillStyle = fd; bc.fillRect(bx0, by - 4, lw, lh);
-    bc.fillStyle = '#000'; bc.fillRect(bx0 + 130, by - 4, lw, lh);
-    g.drawImage(beltLayer, bx0, by - 4, lw, lh);
+    bc.globalCompositeOperation = 'source-atop'; bc.fillStyle = gl; bc.fillRect(ax, by - 4, 300, lh);
+    const fd = bc.createLinearGradient(ax, 0, ax + 230, 0); fd.addColorStop(0, 'rgba(0,0,0,0)'); fd.addColorStop(.25, 'rgba(0,0,0,.14)'); fd.addColorStop(.6, 'rgba(0,0,0,.55)'); fd.addColorStop(1, 'rgba(0,0,0,1)');
+    bc.globalCompositeOperation = 'destination-in'; bc.fillStyle = fd; bc.fillRect(ax, by - 4, lw, lh);
+    bc.fillStyle = '#000'; bc.fillRect(ax + 230, by - 4, lw, lh);
+    g.drawImage(beltLayer, ax, by - 4, lw, lh);
   } else { g.fillStyle = '#231b20'; rr(bx0, by + 2, px0 + 4 - bx0, 20, 4); g.fill(); }
   // монеты на ленте: тень, заготовка, над ней аватарка того, чья монета
-  g.save(); g.beginPath(); g.rect(bx0, 0, W, H); g.clip();
+  g.save(); g.beginPath(); g.rect(ax, 0, W, H); g.clip();
   const now = performance.now();
   belt.forEach((j, i) => {
-    const al = clamp((j.bx - bx0 - 15) / 140) ** 1.5; if (al <= 0) return;
-    const r = BELT.r, y = G.cy - (beltV > 20 ? Math.abs(Math.sin(beltScroll * .09 + i)) * 1.6 : 0), x = j.bx, t = TIERS[j.tier];
-    g.globalAlpha = al * .5; g.fillStyle = '#000'; g.beginPath(); g.ellipse(x + 4, by + 6, r * .85, 6, 0, 0, TAU); g.fill();
+    // глубина: в арке монета маленькая и тёмная, к прессу вырастает и светлеет
+    const dp = clamp((j.bx - ax) / 330), su = lerp(.5, 1, easeSine(dp)), al = clamp((j.bx - ax - 10) / 210) ** 1.6; if (al <= 0) return;
+    const r = BELT.r * su, y = G.cy + BELT.r - r - (beltV > 20 ? Math.abs(Math.sin(beltScroll * .09 + i)) * 1.6 : 0), x = j.bx, t = TIERS[j.tier];
+    g.globalAlpha = al * .5; g.fillStyle = '#000'; g.beginPath(); g.ellipse(x + 4, by + 6, r * .85, 6 * su, 0, 0, TAU); g.fill();
     g.globalAlpha = al; g.drawImage(blankCoin(j.tier), x - r, y - r, r * 2, r * 2);
-    glint(x, y, r - 2, ((time * .35 + i * .3) % 1.6) / .5, .35);
-    const ay = y - r - 46 + Math.sin(time * 2.6 + i * 1.3) * 4, ps = easeBack(clamp((now - j.onBelt) / 400));
+    if (dp < 1) { g.globalAlpha = al * (1 - dp) ** 1.3 * .6; g.fillStyle = '#1a0a06'; g.beginPath(); g.arc(x, y, r - 1, 0, TAU); g.fill(); g.globalAlpha = al; }
+    glint(x, y, r - 2, ((time * .35 + i * .3) % 1.6) / .5, .35 * dp);
+    const ay = y - r - 46 * su + Math.sin(time * 2.6 + i * 1.3) * 4, ps = easeBack(clamp((now - j.onBelt) / 400)) * lerp(.55, 1, dp);
     g.save(); g.translate(x, ay); g.scale(ps, ps);
     g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.moveTo(-8, 26); g.lineTo(8, 26); g.lineTo(0, 40); g.fill();
     g.fillStyle = t.c[1]; g.beginPath(); g.moveTo(-9, 24); g.lineTo(9, 24); g.lineTo(0, 37); g.fill();
@@ -1228,8 +1238,27 @@ function drawTop() {
 // Если есть картинка chest_lid.png, рисуется она, иначе крышка рисуется кодом.
 function lidState() { if (build) { const u = clamp(lidT / .32); return [u >= 1 ? 1 : easeBack(u), 0]; } if (lidFly >= 0) return [1, lidFly]; return [0, 0]; }
 const LID_T = 34;   // толщина крышки в пикселях chest_back.png
+// Купол из картинки chest_dome.png: падает сверху, бьёт по сундуку, чуть подпрыгивает. Координаты в пикселях chest_back.png.
+const DOME = { x: -3, top: -6, h: 248, bottom: 242, from: 470, fall: .3 };
+function domeDrop() {   // на сколько купол приподнят над сундуком (px картинки)
+  if (!build) return 0;
+  if (lidT < DOME.fall) { const u = lidT / DOME.fall; return (1 - u * u) * DOME.from; }
+  const t2 = lidT - DOME.fall; return Math.exp(-t2 * 15) * Math.abs(Math.sin(t2 * 28)) * 24;
+}
+function drawDome(a, fly) {
+  const im = art.chest_dome, cs = a.cs, drop = fly ? 0 : domeDrop(), t2 = build ? lidT - DOME.fall : 9;
+  const sq = t2 > 0 && !fly ? Math.exp(-t2 * 18) : 0;   // сплющивается при ударе
+  const bx = a.x + a.w / 2, by = a.y + (DOME.bottom - drop) * cs;
+  g.save();
+  if (fly) { const e = fly, up = -(260 * e - 700 * e * e); g.translate(0, up * cs * 1.5); g.translate(bx, by); g.rotate(e * 2.4 * (e < 1 ? 1 : 0)); g.translate(-bx, -by); g.globalAlpha = clamp((1.3 - e) / .5); }
+  else g.globalAlpha = clamp(lidT / .05);
+  g.translate(bx, by); g.scale(1 + .035 * sq, 1 - .07 * sq); g.translate(-bx, -by);
+  g.drawImage(im, a.x + DOME.x * cs, by - DOME.h * cs, im.width * cs, DOME.h * cs);
+  g.restore();
+}
 function drawLid(a) {
   let [f, fly] = lidState();
+  if (art.chest_dome) { if (build || fly) drawDome(a, fly); return; }
   if (f <= .02) return;
   const cs = a.cs, bx0 = 105, bx1 = 578, fx0 = 18, fx1 = 672, by = 10, fy = 246;     // углы проёма на chest_back.png
   const lerpf = (p, q) => lerp(p, q, clamp(f, 0, 1.12));
@@ -1272,7 +1301,9 @@ function drawChest() {
   // прогресс
   const goal = GOALS[Math.min(level, GOALS.length - 1)], py = L.goalY, pw = 620;
   rr(cx - pw / 2, py - 19, pw, 38, 19); g.fillStyle = 'rgba(14,8,10,.85)'; g.fill();
-  barV = lerp(barV, Math.min(goal, value + landedExtra), .12); const p = clamp(barV / goal);
+  // полоска следует за реально упавшими монетами; в цепочке (value >= goal) за тем, сколько уже насыпано в новый сундук
+  const bt = value >= goal ? Math.min(goal, Math.max(0, pileN - flyers.length)) : Math.min(goal, value + landedExtra);
+  barV = lerp(barV, bt, .12); const p = clamp(barV / goal);
   if (p > .02) { rr(cx - pw / 2 + 4, py - 15, (pw - 8) * p, 30, 15); const m = g.createLinearGradient(cx - pw / 2, 0, cx + pw / 2, 0); m.addColorStop(0, '#ffb12b'); m.addColorStop(1, '#fff19a'); g.fillStyle = m; g.fill(); }
   txt(Math.min(Math.round(barV), goal) + ' / ' + goal, cx, py + 1, 25, '#fff', 'center', 5);
   txt('★' + (level + 1), cx - pw / 2 - 42, py + 1, 32, '#fff1a8');
@@ -1286,7 +1317,8 @@ function drawChest() {
     g.beginPath(); g.ellipse(cx + 8, base - 8, a.w * .52, 34, 0, 0, TAU); g.fill(); g.restore();
     g.drawImage(art.chest_back, a.x, a.y, a.w, a.h);
     const [lf, lfly] = lidState();
-    if (lf > .02 && !lfly) { g.save(); g.beginPath(); g.rect(cx - MW, a.y + (10 - LID_T * clamp(lf)) * a.cs + (1 - clamp(lf)) * -400, MW * 2, 2000); g.clip(); g.drawImage(mound, cx - MW / 2, L.mBase - MH); g.restore(); }
+    if (art.chest_dome && build) { g.save(); g.beginPath(); g.rect(cx - MW, a.y + (DOME.bottom - domeDrop()) * a.cs, MW * 2, 2000); g.clip(); g.drawImage(mound, cx - MW / 2, L.mBase - MH); g.restore(); }
+    else if (lf > .02 && !lfly) { g.save(); g.beginPath(); g.rect(cx - MW, a.y + (10 - LID_T * clamp(lf)) * a.cs + (1 - clamp(lf)) * -400, MW * 2, 2000); g.clip(); g.drawImage(mound, cx - MW / 2, L.mBase - MH); g.restore(); }
     else g.drawImage(mound, cx - MW / 2, L.mBase - MH);
     drawLid(a);
     g.drawImage(art.chest_front, a.x, a.fy, a.w, a.fh);
@@ -1405,18 +1437,29 @@ function botGift(ti) {
   if (i % 2 === 0 && !portraits[i]) portraits[i] = makePortrait(i);
   addGift({ user: name, uid: name, pic: portraits[i] || '', coins, count: t === 0 && Math.random() < .3 ? 10 : 1 });
 }
+// Подарок с панели: можно от одного и того же зрителя и сериями, чтобы проверять комбо
+let sticky = false, series = 1, lastTi = 0;
+function panelGift(ti, count = 1, same = sticky) {
+  lastTi = ti;
+  const i = same ? 0 : Math.floor(rand(0, NAMES.length)), name = same ? NAMES[0] : NAMES[i] + ' ' + Math.floor(rand(1, 99));
+  if (i % 2 === 0 && !portraits[i]) portraits[i] = makePortrait(i);
+  addGift({ user: name, uid: name, pic: portraits[i] || '', coins: [1, 5, 30, 100, 1000][ti], count });
+}
 function botTick() { if (bots) { botGift(); } botTimer = setTimeout(botTick, rand(500, 2400)); }
 if (Live.testMode) {
   const pn = document.getElementById('panel'); pn.hidden = false;
   const btn = (label, fn, id) => { const b = document.createElement('button'); b.textContent = label; if (id) b.id = id; b.onclick = () => fn(b); pn.append(b); return b; };
   const hide = btn('⚙', () => pn.classList.toggle('min'), 'hide');
-  TIERS.forEach((t, i) => btn(t.emoji, () => botGift(i)));
+  TIERS.forEach((t, i) => btn(t.emoji, () => panelGift(i, series)));
   btn('+20', () => { for (let i = 0; i < 20; i++) botGift(); });
   btn('🤖', b => { bots = !bots; b.setAttribute('aria-pressed', bots); }).setAttribute('aria-pressed', 'false');
   btn('♥', () => onLike());
   btn('👍', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))]; onLike({ user: n, uid: n, count: LIKES.step }); });
   btn('➕', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))] + ' ' + Math.floor(rand(100, 999)); onFollow({ user: n, uid: n }); });
-  btn('×5', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))]; for (let i = 0; i < 6; i++) addGift({ user: n, uid: n, coins: 1, count: 1 }); });
+  // комбо: «👤» все подарки от одного зрителя; «×N» серия одним подарком (как в TikTok: одна розa ×10); «🔁» 10 подарков подряд от одного зрителя
+  btn('👤', b => { sticky = !sticky; b.setAttribute('aria-pressed', sticky); b.title = 'Все подарки от одного зрителя'; }).setAttribute('aria-pressed', 'false');
+  btn('×1', b => { series = series === 1 ? 5 : series === 5 ? 10 : series === 10 ? 30 : 1; b.textContent = '×' + series; b.title = 'Сколько штук в одной серии'; });
+  btn('🔁', () => { for (let k = 0; k < 10; k++) setTimeout(() => panelGift(lastTi, 1, true), k * 250); });
   btn('🔊', b => { mute = !mute; b.textContent = mute ? '🔇' : '🔊'; });
   btn('🎡', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))]; const m = { user: n, uid: 'w' + n, coins: WHEEL.coins, count: 1 }; addGift(m); queueSpin(m); });
   btn('🎵', b => { musicOn = !musicOn; b.style.opacity = musicOn ? 1 : .4; });
