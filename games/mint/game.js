@@ -37,7 +37,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 33;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 34;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -97,12 +97,20 @@ function avatarOf(j) {
   if (j.pic) loadPic(a, j.pic);
   return a;
 }
-function loadPic(a, src) { a.tried = true; const i = new Image(); i.onload = () => { a.src = i; a.v++; a.thumb = null; }; i.src = src; }
+// Любая картинка → квадрат по центру на нейтральной подложке: прозрачные PNG, вытянутые и огромные фото выглядят одинаково
+function drawCover(x, img, dx, dy, w, h) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return;
+  const s = Math.min(iw, ih), sx = (iw - s) / 2, sy = (ih - s) * .4;   // для портретов чуть выше центра: лицо, а не грудь
+  x.fillStyle = '#8a8076'; x.fillRect(dx, dy, w, h);
+  x.drawImage(img, sx, sy, s, s, dx, dy, w, h);
+}
+function loadPic(a, src) { a.tried = true; const i = new Image(); i.onload = () => { if (i.naturalWidth > 1 && i.naturalHeight > 1) { a.src = i; a.v++; a.thumb = null; } }; i.onerror = () => { console.warn('аватар не открылся', String(src).slice(0, 60)); a.retry = (a.retry || 0) + 1; if (a.retry < 3) a.tried = false; }; i.src = src; }
 function thumb(a) {
   if (a.thumb) return a.thumb;
   const c = document.createElement('canvas'); c.width = c.height = 96;
   const x = c.getContext('2d'); x.beginPath(); x.arc(48, 48, 46, 0, TAU); x.clip();
-  x.drawImage(a.src, 0, 0, 96, 96);
+  drawCover(x, a.src, 0, 0, 96, 96);
   return a.thumb = c;
 }
 
@@ -110,7 +118,7 @@ function thumb(a) {
 const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 function engrave(src, ti, n) {
   const c = document.createElement('canvas'); c.width = c.height = n;
-  const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(src, 0, 0, n, n);
+  const x = c.getContext('2d', { willReadFrequently: true }); drawCover(x, src, 0, 0, n, n);
   const d = x.getImageData(0, 0, n, n), p = d.data, N = n * n, L0 = new Float32Array(N), Ln = new Float32Array(N);
   for (let i = 0; i < N; i++) L0[i] = (p[i * 4] * .299 + p[i * 4 + 1] * .587 + p[i * 4 + 2] * .114) / 255;
   // лёгкое размытие против шума
@@ -122,6 +130,8 @@ function engrave(src, ti, n) {
   // растягиваем контраст: тёмные и светлые фото выглядят одинаково
   const sorted = Float32Array.from(Ln).sort(), lo = sorted[Math.floor(N * .03)], hi = sorted[Math.floor(N * .97)], span = Math.max(.08, hi - lo);
   for (let i = 0; i < N; i++) Ln[i] = clamp((Ln[i] - lo) / span);
+  // края кадра гасим к середине серого: фон и мусор по краям не спорят с лицом в центре
+  for (let y = 0; y < n; y++) for (let xx = 0; xx < n; xx++) { const dx0 = (xx - n / 2) / (n / 2), dy0 = (y - n / 2) / (n / 2), r0 = Math.sqrt(dx0 * dx0 + dy0 * dy0), k0 = clamp((r0 - .5) / .6) * .5; Ln[y * n + xx] += (.5 - Ln[y * n + xx]) * k0; }
   // второе размытие даёт гладкий рельеф: картинка становится выпуклой, как отчеканенная
   const Hh = new Float32Array(N);
   for (let y = 0; y < n; y++) for (let xx = 0; xx < n; xx++) {
@@ -165,7 +175,7 @@ function makeCoin(a, ti, free) {
   if (ENGRAVE.on) try { eng = engrave(a.src, ti, Math.round(hr * 2)); } catch (e) { eng = null; }   // чужая картинка без доступа: обычный режим
   if (eng) x.drawImage(eng, R - hr, R - hr, hr * 2, hr * 2);
   else {
-    x.drawImage(a.src, R - hr, R - hr, hr * 2, hr * 2);
+    drawCover(x, a.src, R - hr, R - hr, hr * 2, hr * 2);
     x.globalCompositeOperation = 'multiply'; x.globalAlpha = .38; x.fillStyle = t.c[0]; x.fillRect(0, 0, S, S);
     x.globalCompositeOperation = 'source-over'; x.globalAlpha = 1;
   }

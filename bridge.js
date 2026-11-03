@@ -32,29 +32,59 @@ wss.on('connection', c => {
 const broadcast = o => { const m = JSON.stringify(o); wss.clients.forEach(c => c.readyState === 1 && c.send(m)); };
 const setLive = v => { liveState = { ...liveState, live: v }; broadcast(liveState); };
 
-// Аватарки отдаём браузеру как data-URL, с кэшем
-const PICS = new Map();
-async function getPic(url) {
-  if (!url) return '';
-  if (PICS.has(url)) return PICS.get(url);
-  let out = '';
-  try {
-    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 4000);
-    const x = await fetch(url, { signal: ac.signal });
-    clearTimeout(to);
-    if (x.ok) {
+// Аватарки отдаём браузеру как data-URL, с кэшем. У TikTok для одного человека несколько ссылок (jpeg, webp, heic, разные размеры):
+// пробуем по очереди, heic браузер не открывает, поэтому такие пропускаем
+const PICS = new Map(), PICBAD = new Map();
+const HDR = { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36', Referer: 'https://www.tiktok.com/', Accept: 'image/jpeg,image/webp,image/png,image/*;q=.8' };
+const imgRank = u => /\.jpe?g(\?|$|~)/i.test(u) || /jpeg/i.test(u) ? 0 : /\.png/i.test(u) ? 1 : /\.webp/i.test(u) || /webp/i.test(u) ? 2 : /heic|heif|avif/i.test(u) ? 9 : 3;
+function picUrls(d) {   // все возможные ссылки на аватар зрителя; картинки подарков и значки не берём
+  const out = [], seen = new Set(), BAD = /gift|extended|emote|badge|sticker|fans|medal|label|background/i, KEY = /avatar|profilepic|picture|portrait|headimg|photo/i;
+  const add = u => { if (typeof u === 'string' && /^https?:\/\//.test(u) && !seen.has(u)) { seen.add(u); out.push(u); } };
+  const walk = (o, depth, on) => {
+    if (!o || depth > 5) return;
+    if (typeof o === 'string') { if (on) add(o); return; }
+    if (Array.isArray(o)) { o.forEach(x => walk(x, depth + 1, on)); return; }
+    if (typeof o === 'object') for (const k of Object.keys(o)) { if (BAD.test(k)) continue; walk(o[k], depth + 1, on || KEY.test(k) || k === 'url' && on || k === 'urlList' && on); }
+  };
+  walk(d.user, 0, false); walk(d, 0, false);
+  return out.filter(u => !/\.(svg|gif)(\?|$)/i.test(u)).sort((x, y) => imgRank(x) - imgRank(y));
+}
+async function getPic(urls) {
+  if (!urls || !urls.length) return '';
+  const key = urls[0];
+  if (PICS.has(key)) return PICS.get(key);
+  if (PICBAD.has(key) && Date.now() - PICBAD.get(key) < 60000) return '';   // недавно не вышло, не долбим снова
+  let out = '', why = '';
+  for (const url of urls.slice(0, 5)) {
+    if (imgRank(url) === 9) { why = 'heic'; continue; }
+    try {
+      const ac = new AbortController(), to = setTimeout(() => ac.abort(), 5000);
+      const x = await fetch(url, { signal: ac.signal, headers: HDR });
+      clearTimeout(to);
+      const ct = x.headers.get('content-type') || '';
+      if (!x.ok) { why = 'HTTP ' + x.status; continue; }
+      if (!/^image\/(jpeg|png|webp|gif)/i.test(ct)) { why = 'тип ' + ct; continue; }
       const b = Buffer.from(await x.arrayBuffer());
-      if (b.length < 300000) out = 'data:' + (x.headers.get('content-type') || 'image/jpeg') + ';base64,' + b.toString('base64');
-    }
-  } catch (e) {}
-  PICS.set(url, out);
-  if (PICS.size > 2000) PICS.delete(PICS.keys().next().value);
+      if (b.length > 900000) { why = 'файл ' + Math.round(b.length / 1000) + ' КБ'; continue; }
+      out = 'data:' + ct.split(';')[0] + ';base64,' + b.toString('base64'); break;
+    } catch (e) { why = e.name === 'AbortError' ? 'таймаут' : String(e.message || e); }
+  }
+  if (out) PICS.set(key, out); else { PICBAD.set(key, Date.now()); console.log('аватар не загрузился:', why, '|', key.slice(0, 80)); }
+  if (PICS.size > 1500) PICS.delete(PICS.keys().next().value);
   return out;
 }
-const picOf = d => { const u = d.user || {}, pp = u.profilePicture || d.profilePicture || {}; return d.profilePictureUrl || u.profilePictureUrl || (pp.url && pp.url[0]) || (pp.urls && pp.urls[0]) || ''; };
+const picOf = d => picUrls(d);
 const userOf = d => d.nickname || (d.user && (d.user.nickname || d.user.uniqueId)) || d.uniqueId || 'Viewer';
 const uidOf = d => d.uniqueId || (d.user && d.user.uniqueId) || userOf(d);
-const send = async o => { if (o.pic) o.pic = await getPic(o.pic); broadcast(o); };
+const send = async o => { if (Array.isArray(o.pic)) o.pic = await getPic(o.pic); broadcast(o); };
+// Текст сообщения: поле называется по-разному в разных версиях библиотеки
+const textOf = d => {
+  for (const k of ['comment', 'content', 'text', 'message', 'msg']) if (typeof d[k] === 'string' && d[k].trim()) return d[k];
+  let best = '';
+  const walk = (o, depth, on) => { if (!o || depth > 3) return; if (typeof o === 'string') { if (on && o.length > best.length && !/^https?:/.test(o)) best = o; return; } if (typeof o === 'object') for (const k of Object.keys(o)) walk(o[k], depth + 1, on || /comment|content|text|message/i.test(k)); };
+  walk(d, 0, false);
+  return best;
+};
 
 const seen = new Set();
 const isRepeat = id => { if (!id) return false; if (seen.has(id)) return true; seen.add(id); if (seen.size > 5000) seen.delete(seen.values().next().value); return false; };
@@ -84,7 +114,13 @@ function go() {
   });
   let likeLog = 0;
   C.on('like', d => { if (Date.now() - likeLog > 5000) { likeLog = Date.now(); console.log('лайки', userOf(d), '+' + (+d.likeCount || 1)); } send({ type: 'like', count: +d.likeCount || 1, user: userOf(d), uid: uidOf(d), pic: picOf(d) }); });
-  C.on('chat', d => { console.log('чат', userOf(d) + ':', String(d.comment || '').slice(0, 60)); send({ type: 'chat', text: String(d.comment || ''), user: userOf(d), uid: uidOf(d), pic: picOf(d) }); });
+  let chatDump = 0;
+  C.on('chat', d => {
+    const text = textOf(d);
+    console.log('чат', userOf(d) + ':', text.slice(0, 60) || '(текст пустой)');
+    if (!text && chatDump++ < 3) console.log('  сырое событие:', Object.keys(d).join(','), JSON.stringify(d, (k, v) => typeof v === 'bigint' ? String(v) : v).slice(0, 700));
+    send({ type: 'chat', text, user: userOf(d), uid: uidOf(d), pic: picOf(d) });
+  });
   C.on('follow', d => { console.log('подписка', userOf(d)); send({ type: 'follow', user: userOf(d), uid: uidOf(d), pic: picOf(d) }); });
   C.on('disconnected', () => { setLive(false); console.log('эфир отключён, переподключаюсь'); again(5000); });
   C.connect().then(async st => {
