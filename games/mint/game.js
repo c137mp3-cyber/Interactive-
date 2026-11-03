@@ -29,9 +29,9 @@ const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
 const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
-const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_lid', 'wheel', 'wheel_stand', 'lantern',
+const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_lid', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 19;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 20;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -290,7 +290,7 @@ function startBuild() {
 function doBurst() {
   value = Math.max(0, value - curGoal()); level++;   // остаток целиком переходит в следующий сундук, ничего не теряется
   chain = value >= curGoal() ? chain + 1 : 0;
-  sfx('win', 4); flash = .55; flashColor = '#fff1a8'; chestPop = 0; chestKick = 0;
+  lanternKick = 1; sfx('win', 4); flash = .55; flashColor = '#fff1a8'; chestPop = 0; chestKick = 0;
   const pool = chestCoins.length ? chestCoins.slice() : [blankCoin(0)];
   for (let i = 0; i < 72; i++) {
     const own = i < 30, sp = pool[Math.floor(rand(0, pool.length))], ti = sp.tier || 0;
@@ -529,7 +529,7 @@ function update(dt) {
   if (spots.length && Math.random() < dt * (1.2 + spots.length * .08)) { const p = spots[Math.floor(rand(0, spots.length))]; twinkles.push({ x: p.x + rand(-22, 22), y: p.y + rand(-22, 10), t: 0, d: rand(.5, .9), s: 9 + p.tier * 4, c: TIERS[p.tier].c[0] }); }
   const ct = job && (job.ph === 4 || job.ph === 5) ? [0, .12, .3, .5, .62][job.tier] : 0; cine = lerp(cine, ct, clamp(dt * 5));
   lvlT = Math.max(0, lvlT - dt);
-  shake = 0; pressShake = Math.max(0, pressShake - dt * 60); if (chestPop >= 0) chestPop += dt; if (chestPop > 2) chestPop = -1; flash = Math.max(0, flash - dt * 1.7); chestKick = Math.max(0, chestKick - dt * 4);
+  lanternKick = Math.max(0, lanternKick - .006); shake = 0; pressShake = Math.max(0, pressShake - dt * 60); if (chestPop >= 0) chestPop += dt; if (chestPop > 2) chestPop = -1; flash = Math.max(0, flash - dt * 1.7); chestKick = Math.max(0, chestKick - dt * 4);
   wall.forEach(w => { w.swing = Math.max(0, w.swing - dt * .55); });
   for (let i = wallFall.length - 1; i >= 0; i--) { const f = wallFall[i]; f.life -= dt; f.vy += 1300 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.a += f.va * dt; if (f.life <= 0 || f.y > H + 200) wallFall.splice(i, 1); }
 }
@@ -602,7 +602,7 @@ function drawStrikeLight() {
 
 // Рулетка: особый подарок крутит колесо, камера наезжает на него, выпадает бонус монет в сундук.
 // WHEEL.gifts — названия подарков TikTok, которые крутят колесо; если пусто, крутит любой подарок ровно за WHEEL.coins монет.
-const WHEEL = { gifts: [], coins: 99, x: 938, y: 1175, r: 108,
+const WHEEL = { gifts: [], coins: 99, x: 940, y: 1125, r: 100,
   prizes: [5, 25, 10, 50, 15, 100, 20, 30],          // по часовой, начиная сверху
   odds:   [20, 12, 18, 6, 16, 2, 14, 12] };          // веса: +100 редко, +5 часто
 const wheelQ = []; let spin = null, wheelAng = 0, cam = 0, wheelTick = -1;
@@ -649,7 +649,8 @@ function drawWheel() {
   // подставка
   g.save(); g.translate(X, Y); g.rotate(sway * .3);
   g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(0, R + 118, R * 1.1, 16, 0, 0, TAU); g.fill();
-  if (art.wheel_stand) { const st = art.wheel_stand, w = R * 2.6, h = w * st.height / st.width; g.drawImage(st, -w / 2, -R - 40, w, h); }
+  const SK = R / 242;   // кольцо подставки: центр (342,440), радиус 242 в пикселях wheel_stand.png
+  if (art.wheel_stand) g.drawImage(art.wheel_stand, -342 * SK, -440 * SK, art.wheel_stand.width * SK, art.wheel_stand.height * SK);
   else {
     g.fillStyle = '#4a2d18'; g.strokeStyle = '#1e1008'; g.lineWidth = 5;
     g.beginPath(); g.moveTo(-20, 0); g.lineTo(-R * .75, R + 112); g.lineTo(-R * .5, R + 112); g.lineTo(0, 20); g.lineTo(R * .5, R + 112); g.lineTo(R * .75, R + 112); g.lineTo(20, 0); g.closePath(); g.fill(); g.stroke();
@@ -658,7 +659,7 @@ function drawWheel() {
   g.restore();
   // колесо
   g.save(); g.translate(X, Y); g.rotate(wheelAng + sway);
-  if (art.wheel) { g.drawImage(art.wheel, -R * 1.12, -R * 1.12, R * 2.24, R * 2.24); }
+  if (art.wheel) { g.drawImage(art.wheel, -R * 1.02, -R * 1.02, R * 2.04, R * 2.04); }
   else {
     for (let i = 0; i < n; i++) { g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R, -Math.PI / 2 + (i - .5) * seg, -Math.PI / 2 + (i + .5) * seg); g.closePath(); g.fillStyle = i % 2 ? '#7a1a26' : '#e2b13c'; g.fill(); g.lineWidth = 2; g.strokeStyle = '#3a2208'; g.stroke(); }
     g.lineWidth = 10; g.strokeStyle = '#b7862a'; g.beginPath(); g.arc(0, 0, R, 0, TAU); g.stroke();
@@ -672,30 +673,52 @@ function drawWheel() {
     g.restore();
   }
   // лампочки по ободу: бегущий огонёк, во время вращения быстрее
-  const nb = 16;
+  const nb = art.wheel ? 24 : 16, br = art.wheel ? R * .915 : R + 1, q0 = art.wheel ? -Math.PI / 2 + 7.5 * Math.PI / 180 : 0;
   for (let i = 0; i < nb; i++) {
-    const q = i / nb * TAU, on = act ? ((Math.floor(time * 18) + i) % 3 === 0) : ((Math.floor(time * 3) + i) % 4 === 0);
-    const bx = Math.cos(q) * (R + 1), by = Math.sin(q) * (R + 1);
-    g.fillStyle = on ? '#fff3b0' : '#7a5a20'; g.beginPath(); g.arc(bx, by, 5.5, 0, TAU); g.fill();
+    const q = q0 + i / nb * TAU, on = act ? ((Math.floor(time * 18) + i) % 3 === 0) : ((Math.floor(time * 3) + i) % 4 === 0);
+    const bx = Math.cos(q) * br, by = Math.sin(q) * br;
+    if (art.wheel) { if (!on) { g.fillStyle = 'rgba(30,15,5,.55)'; g.beginPath(); g.arc(bx, by, R * .045, 0, TAU); g.fill(); } }
+    else { g.fillStyle = on ? '#fff3b0' : '#7a5a20'; g.beginPath(); g.arc(bx, by, 5.5, 0, TAU); g.fill(); }
     if (on) { g.globalAlpha = .35; g.fillStyle = '#ffd36b'; g.beginPath(); g.arc(bx, by, 12, 0, TAU); g.fill(); g.globalAlpha = 1; }
   }
-  g.fillStyle = '#c99a2e'; g.beginPath(); g.arc(0, 0, 18, 0, TAU); g.fill(); g.lineWidth = 3; g.strokeStyle = '#5a3606'; g.stroke();
+  if (!art.wheel) { g.fillStyle = '#c99a2e'; g.beginPath(); g.arc(0, 0, 18, 0, TAU); g.fill(); g.lineWidth = 3; g.strokeStyle = '#5a3606'; g.stroke(); }
   g.restore();
   // стрелка сверху, подпрыгивает на каждом секторе
-  if (!art.wheel_stand) {
+  if (art.wheel_pointer) {
+    const SK = R / 242, pw = art.wheel_pointer.width * SK, ph = art.wheel_pointer.height * SK, px = X + (277 - 342) * SK, py = Y + (42 - 440) * SK;
+    g.save(); g.translate(px + pw / 2, py + 30 * SK); g.rotate(-(spin && spin.flick || 0) * .3); g.drawImage(art.wheel_pointer, -pw / 2, -30 * SK, pw, ph); g.restore();
+  } else {
     g.save(); g.translate(X, Y - R - 6); g.rotate(-(spin && spin.flick || 0) * .35);
     g.beginPath(); g.moveTo(-14, -22); g.lineTo(14, -22); g.lineTo(0, 12); g.closePath(); g.fillStyle = '#e8b923'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#5a3606'; g.stroke();
     g.restore();
   }
   // табличка: какой подарок крутит колесо
   if (!spin) {
-    const ic = wheelIcon, y = Y - R - 58 + Math.sin(time * 2.4) * 4;
+    const ic = wheelIcon, y = Y + R + 62 + Math.sin(time * 2.4) * 3;
     rr(X - 58, y - 22, 116, 44, 22); g.fillStyle = 'rgba(21,12,14,.85)'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#d9b77a'; g.stroke();
     if (ic && ic.complete && ic.naturalWidth) g.drawImage(ic, X - 52, y - 19, 38, 38); else txt('🎁', X - 33, y + 1, 26, '#fff', 'center', 0);
     txt('= 🎡', X + 18, y + 1, 24, '#fff1a8', 'center', 0);
   }
 }
 let wheelIcon = null;
+// Фонарь на цепи над сундуком: качается, свеча мерцает и подсвечивает кучу монет
+const LANTERN = { x: 752, y: 620, w: 132 };
+let lanternKick = 0;
+function drawLantern() {
+  const im = art.lantern; if (!im) return;
+  const top = L.rope + 18, sc = LANTERN.w / im.width, h = im.height * sc;
+  const ang = Math.sin(time * .9) * .035 + Math.sin(time * 5.5) * .05 * lanternKick, len = LANTERN.y - top;
+  const fl = .75 + .15 * Math.sin(time * 11) + .1 * Math.sin(time * 23.3);
+  g.save(); g.translate(LANTERN.x, top); g.rotate(ang);
+  ironChain(0, 0, 0, len + 6);
+  g.drawImage(im, -LANTERN.w / 2, len, LANTERN.w, h);
+  const cx = (240 - im.width / 2) * sc, cy = len + 705 * sc;
+  lightSpot(cx, cy, 120, 'rgba(255,190,90,A)', .35 * fl);
+  g.restore();
+  const lx = LANTERN.x + Math.sin(ang) * (len + 705 * sc), ly = top + Math.cos(ang) * (len + 705 * sc);
+  lightSpot(lx, ly + 140, 420, 'rgba(255,180,90,A)', .07 * fl);   // свет падает на сундук
+}
+
 function drawSpinOverlay() {
   if (cam < .01) return;
   g.fillStyle = `rgba(6,3,9,${cam * .55})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120);
@@ -1236,7 +1259,7 @@ function draw() {
   drawFire();
   g.setTransform(dpr * scale * cz, 0, 0, dpr * scale * cz, dpr * (ox * cz + ctx0), dpr * (oy * cz + cty));
   g.save();
-  drawDust(); drawLegend(); drawWall(); drawPress(); drawStrikeLight(); drawLevelRays(); drawChestShadow();
+  drawDust(); drawLegend(); drawWall(); drawPress(); drawLantern(); drawStrikeLight(); drawLevelRays(); drawChestShadow();
   if (build) { const k = build.t / build.d; drawChest(); rays(L.cx, L.pileY, 20, 300 * k, 14, ['#fff1a8', '#ffb12b'], time * 1.6, .4 * k); halo(L.cx, L.pileY, 260 + k * 260, '#ffd36b', .25 + .5 * k); }
   else drawChest();
   drawWheel();
