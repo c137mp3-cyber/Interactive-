@@ -31,7 +31,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 14;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 15;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -361,10 +361,10 @@ function pourCoins(n, pick, fx, fy, delay = 0, spread = 1) {
 
 // Звук из браузера, без файлов
 let ac = null, mute = false;
-function unlock() { if (!ac) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) ac = new AC(); } loadSounds(); if (ac && ac.state === 'suspended') ac.resume().then(startAmbient); else startAmbient(); }
+function unlock() { if (!ac) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) ac = new AC(); } loadSounds(); startMusic(); if (ac && ac.state === 'suspended') ac.resume().then(startAmbient); else startAmbient(); }
 addEventListener('pointerdown', unlock);
 // Звуки из файлов: положите mp3 в games/mint/sounds/ и впишите имя сюда. Чего нет, то синтезируется кодом.
-const SOUND_FILES = [];   // например: ['clank', 'clink', 'pour', 'reveal', 'reveal_big', 'win', 'build', 'king', 'whoosh', 'rope', 'belt_loop', 'amb_forge']
+const SOUND_FILES = ['clank', 'build', 'belt_loop', 'amb_forge'];   // например: ['clank', 'clink', 'pour', 'reveal', 'reveal_big', 'win', 'build', 'king', 'whoosh', 'rope', 'belt_loop', 'amb_forge']
 const sbuf = {}; let soundsAsked = false;
 function loadSounds() {
   if (soundsAsked || !ac) return; soundsAsked = true;
@@ -375,6 +375,22 @@ function play(n, v = 1, rate = 1, at = 0) {
   const b = sbuf[n]; if (!b) return false;
   const src = ac.createBufferSource(), gn = ac.createGain(); src.buffer = b; src.playbackRate.value = rate; gn.gain.value = v;
   src.connect(gn).connect(ac.destination); src.start(ac.currentTime + at); return true;
+}
+// Фоновая музыка: треки по кругу, тише во время больших моментов
+const MUSIC = ['music1', 'music2', 'music3'], MUSIC_VOL = .3;
+let music = null, musicOn = true, mi = Math.floor(Math.random() * MUSIC.length), musicVol = 0;
+function startMusic() {
+  if (music || !MUSIC.length) return;
+  music = new Audio(); music.preload = 'auto'; music.volume = 0;
+  const go = () => { music.src = 'sounds/' + MUSIC[mi] + '.mp3?v=' + BUILD; music.play().catch(() => {}); };
+  music.addEventListener('ended', () => { mi = (mi + 1) % MUSIC.length; go(); });
+  go();
+}
+function updateMusic(dt) {
+  if (!music) return;
+  const big = build || lvlT > 0 || (job && job.ph >= 4 && job.ph <= 5 && (job.tier >= 3 || job.king));
+  const target = mute || !musicOn ? 0 : MUSIC_VOL * (big ? .4 : 1);
+  musicVol = lerp(musicVol, target, clamp(dt * 3)); music.volume = clamp(musicVol);
 }
 function tone(f, d, type, v, at = 0, to) {
   const t = ac.currentTime + at, o = ac.createOscillator(), n = ac.createGain();
@@ -447,11 +463,11 @@ function updateAmbient(dt) {
   amb.motor.gn.gain.setTargetAtTime(v * .05, t, .08); amb.motor.fl.frequency.setTargetAtTime(600 + 500 * v, t, .1);
   amb.hg.gain.setTargetAtTime(v * .06, t, .1);
   // файлы окружения, если есть: заменяют синтез
-  const loop = (n, v) => { const src = ac.createBufferSource(), gn = ac.createGain(); src.buffer = sbuf[n]; src.loop = true; gn.gain.value = v; src.connect(gn).connect(amb.out); src.start(); return gn; };
-  if (sbuf.amb_forge && !amb.forge) amb.forge = loop('amb_forge', .7);
+  const loop = (n, v) => { const src = ac.createBufferSource(), gn = ac.createGain(); src.buffer = sbuf[n]; src.loop = true; src.loopStart = .03; src.loopEnd = sbuf[n].duration - .03; gn.gain.value = v; src.connect(gn).connect(amb.out); src.start(); return gn; };
+  if (sbuf.amb_forge && !amb.forge) amb.forge = loop('amb_forge', .55);
   if (sbuf.belt_loop && !amb.beltLoop) { amb.beltLoop = loop('belt_loop', 0); }
   if (amb.forge) { amb.fire.gn.gain.setTargetAtTime(0, t, .2); amb.rumble.gn.gain.setTargetAtTime(.12 * anvilKick, t, .2); }
-  if (amb.beltLoop) { amb.beltLoop.gain.setTargetAtTime(v * .8, t, .1); amb.motor.gn.gain.setTargetAtTime(0, t, .1); amb.hg.gain.setTargetAtTime(0, t, .1); }
+  if (amb.beltLoop) { amb.beltLoop.gain.setTargetAtTime(v * .4, t, .1); amb.motor.gn.gain.setTargetAtTime(0, t, .1); amb.hg.gain.setTargetAtTime(0, t, .1); }
   if (mute) return;
   // стук пластин ленты о ролики
   const pl = Math.floor(beltScroll / 82); if (pl !== amb.plate) { amb.plate = pl; if (v > .1 && !amb.beltLoop) { noise(.035, 1500, 1.4, .02 + .03 * v, 0, 'bandpass'); tone(120, .06, 'sine', .03 * v); } }
@@ -481,7 +497,7 @@ function update(dt) {
     const pool = sprites.length ? sprites.slice(-3) : [{ s: blankCoin(0) }];
     pourCoins(Math.min(80, Math.min(value, curGoal() + PILE.extra) - pileN), i => pool[i % pool.length].s, L.cx, L.pileY - 420);
   }
-  updateBelt(dt); updateAmbient(dt); updateDust(dt);
+  updateBelt(dt); updateAmbient(dt); updateMusic(dt); updateDust(dt);
   if (!job) startNext();
   let target = 0;
   if (job) {
@@ -1114,11 +1130,12 @@ if (Live.testMode) {
   btn('➕', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))] + ' ' + Math.floor(rand(100, 999)); onFollow({ user: n, uid: n }); });
   btn('×5', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))]; for (let i = 0; i < 6; i++) addGift({ user: n, uid: n, coins: 1, count: 1 }); });
   btn('🔊', b => { mute = !mute; b.textContent = mute ? '🔇' : '🔊'; });
+  btn('🎵', b => { musicOn = !musicOn; b.style.opacity = musicOn ? 1 : .4; });
   botTick();
   bots = true; pn.querySelector('button:nth-of-type(8)').setAttribute('aria-pressed', 'true');
 }
 
-window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, sounds: () => Object.keys(sbuf), stat: () => ({ slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
+window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, sounds: () => Object.keys(sbuf), music: () => music && { src: music.src, paused: music.paused, t: music.currentTime, vol: music.volume }, stat: () => ({ slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
 resize();
 requestAnimationFrame(loop);
 })();
