@@ -37,13 +37,20 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'shelf_post', 'shelf_board', 'shelf_top', 'bag_1', 'bag_2', 'bag_3', 'bag_4', 'bag_5', 'bag_6', 'name_paper', 'empty_slot', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 40;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 41;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
 // Экран: заполняем его целиком, без чёрных полос
 const W = 1080, H = 1400;          // сцена: все координаты считаются в ней
-const MINT_SHIFT = 120;   // на сколько сдвинуть механизм влево (в единицах сцены), чтобы справа уместилась Казна
+// Фон 768x1376 прижат к правому краю и увеличен так, чтобы центральная каменная арка встала ровно за прессом.
+const BGW = 768, BGH = 1376, ARCH_X = 407;   // ширина/высота bg.png и x центра арки на нём
+const ARCH_FRAC = .49;                        // где на экране (доля ширины) должна быть арка и, значит, центр кузни
+const KAZNA_LEFT = .68;                       // левый край стеллажа (доля ширины экрана)
+function bgRect() {
+  const cover = Math.max(SCW / BGW, SCH / BGH), s = Math.max(cover, SCW * (1 - ARCH_FRAC) / (BGW - ARCH_X));
+  return { s, x: SCW - BGW * s, y: SCH / 2 - BGH * s / 2, w: BGW * s, h: BGH * s };
+}
 const SAFE = { top: .13, bottom: .72 }; // TikTok закрывает верх (шапка) и низ (чат): игра живёт между ними
 const HOLE = .70;                     // диаметр отверстия в рамках монет, доля от диаметра монеты
 const CHEST_W = 600;
@@ -58,7 +65,7 @@ function resize() {
   SCW = iw; SCH = ih;
   const tall = ih / iw > 1.3, top = ih * (tall ? SAFE.top : .02), bot = ih * (tall ? SAFE.bottom : .98);
   scale = Math.min(iw / W, (bot - top) / H);
-  ox = (iw - W * scale) / 2 - MINT_SHIFT * scale; oy = top + ((bot - top) - H * scale) / 2;
+  ox = bgRect().x + ARCH_X * bgRect().s - (W / 2) * scale; oy = top + ((bot - top) - H * scale) / 2;
   L.cx = W / 2;
   L.legendY = 70; L.rope = 170; L.heroY = 575; L.anvil = 770; L.pressTop = L.anvil - 370; L.queueTop = 420;
   L.chestTop = 1060; L.chestBot = Math.min(1390, L.chestTop + 330);
@@ -599,8 +606,8 @@ function update(dt) {
 const FIRE = { x: 112, y: 740 };   // где в bg.png горит огонь
 function fireAt() {
   const b = art.bg; if (!b) return null;
-  const s = Math.max(SCW / b.width, SCH / b.height);
-  return { x: SCW / 2 - b.width * s / 2 + FIRE.x * s, y: SCH / 2 - b.height * s / 2 + FIRE.y * s, s };
+  const r = bgRect(), s = r.s;
+  return { x: r.x + FIRE.x * s, y: r.y + FIRE.y * s, s };
 }
 function updateEmbers(dt) {
   const f = fireAt(); if (!f) return;
@@ -625,9 +632,9 @@ function drawFire() {
 let vig = null;
 function buildVignette() {
   vig = document.createElement('canvas'); vig.width = cv.width; vig.height = cv.height; vig.src = art.bg;
-  const v = vig.getContext('2d'), w = vig.width, h = vig.height, b = art.bg, s = Math.max(w / b.width, h / b.height);
+  const v = vig.getContext('2d'), w = vig.width, h = vig.height, b = art.bg, r = bgRect(), k = w / SCW;
   v.imageSmoothingQuality = 'high';
-  v.drawImage(b, w / 2 - b.width * s / 2, h / 2 - b.height * s / 2, b.width * s, b.height * s);
+  v.drawImage(b, r.x * k, r.y * k, r.w * k, r.h * k);
   v.fillStyle = 'rgba(12,6,10,.10)'; v.fillRect(0, 0, w, h);   // лёгкое затемнение, чтобы монеты и ники читались
   const gr = v.createRadialGradient(w / 2, h * .48, Math.min(w, h) * .3, w / 2, h * .48, Math.hypot(w, h) * .62);
   gr.addColorStop(0, 'rgba(8,3,6,0)'); gr.addColorStop(.6, 'rgba(8,3,6,.25)'); gr.addColorStop(1, 'rgba(8,3,6,.78)');
@@ -670,8 +677,8 @@ const WHEEL = { gifts: [], coins: 99, x: 940, y: 1125, r: 100,
 const camT = { x: 940, y: 1125, z: 1.5 }, camF = { x: 940, y: 1125, z: 1.5 };
 // Колесо стоит на полу справа внизу, на свободном месте между чатом TikTok (слева) и нижней панелью. Крупнее прежнего
 function placeWheel() {
-  const R = 140, bottom = (SCH * .93 - oy) / scale;   // нижняя граница видимого пола в координатах сцены
-  WHEEL.r = R; WHEEL.x = Math.min(915 + MINT_SHIFT, (SCW - ox) / scale - R * 1.3);
+  const R = 165, bottom = (SCH * .93 - oy) / scale;   // нижняя граница видимого пола в координатах сцены
+  WHEEL.r = R; WHEEL.x = Math.min((SCW * .70 - ox) / scale, (SCW - ox) / scale - R * 1.3);
   WHEEL.y = clamp(bottom - R * 2.5, 1330, 1590);
 }
 const wheelQ = []; let spin = null, wheelAng = 0, cam = 0, wheelTick = -1;
@@ -748,7 +755,7 @@ function drawWheel() {
   // лампочки по ободу: бегущий огонёк, во время вращения быстрее
   const nb = art.wheel ? 24 : 16, br = art.wheel ? R * .915 : R + 1, q0 = art.wheel ? -Math.PI / 2 + 7.5 * Math.PI / 180 : 0;
   for (let i = 0; i < nb; i++) {
-    const q = q0 + i / nb * TAU, on = act ? ((Math.floor(time * 18) + i) % 3 === 0) : ((Math.floor(time * 3) + i) % 4 === 0);
+    const q = q0 + i / nb * TAU, on = act ? ((Math.floor(time * 9) + i) % 2 === 0) : ((Math.floor(time * 2.5) + i) % 2 === 0);
     const bx = Math.cos(q) * br, by = Math.sin(q) * br;
     if (art.wheel) { if (!on) { g.fillStyle = 'rgba(30,15,5,.55)'; g.beginPath(); g.arc(bx, by, R * .045, 0, TAU); g.fill(); } }
     else { g.fillStyle = on ? '#fff3b0' : '#7a5a20'; g.beginPath(); g.arc(bx, by, 5.5, 0, TAU); g.fill(); }
@@ -1090,8 +1097,8 @@ const easeSine = t => -(Math.cos(Math.PI * t) - 1) / 2;
 // точка фона (в пикселях bg.png) -> координаты сцены
 function bgToStage(bx, by) {
   const b = art.bg; if (!b) return null;
-  const s = Math.max(SCW / b.width, SCH / b.height);
-  return { x: (SCW / 2 - b.width * s / 2 + bx * s - ox) / scale, y: (SCH / 2 - b.height * s / 2 + by * s - oy) / scale };
+  const r = bgRect();
+  return { x: (r.x + bx * r.s - ox) / scale, y: (r.y + by * r.s - oy) / scale };
 }
 function beltGeo() {
   const F = FRAME, sf = F.s, hole = F.hole, cx = L.cx, plankTop = L.anvil + 66;
@@ -1360,8 +1367,8 @@ function bagImg(lv, col) {
   x.putImageData(d, 0, 0); bagCache.set(k, c); return c;
 }
 function kGeo() {
-  const right = Math.min((SCW - ox) / scale - 14, KAZNA.x0 + KAZNA.maxW), x1 = Math.max(KAZNA.x0 + 250, right), x0 = Math.max(KAZNA.x0, x1 - KAZNA.maxW);
-  const top = KAZNA.top, bot = Math.max(top + 420, Math.min(1395, WHEEL.y - WHEEL.r - 40));
+  const xl = (SCW * KAZNA_LEFT - ox) / scale, x1 = (SCW - ox) / scale - 14, x0 = Math.max(xl, x1 - KAZNA.maxW);
+  const top = KAZNA.top, bot = Math.max(top + 420, Math.min(1395, WHEEL.y - WHEEL.r * 1.15));
   return { x0, x1, w: x1 - x0, top, bot, h: bot - top, post: 30 };
 }
 function kLayout(G) {
@@ -1799,8 +1806,8 @@ function draw() {
   g.save();
   drawDust(); drawLegend(); drawWall(); drawPress(); if (SIGN.on) drawSign(); drawStrikeLight(); drawLevelRays(); drawChestShadow();
   drawChest();   // сияния над закрытым сундуком нет: крышка закрыта, свет только при взрыве
-  drawWheel();
   drawTwinkles(); drawQueue(); drawKazna();
+  drawWheel();
   drawSpinOverlay();
   if (cine > .01) { g.fillStyle = `rgba(6,3,9,${cine})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120); }
   for (const f of flyers) { if (f.t < 0) continue; const u = clamp(f.t / f.d); g.save(); g.translate(lerp(f.x, f.tx, u), lerp(f.y, f.ty, u * u) - Math.sin(u * Math.PI) * 120); g.rotate(lerp(f.a + 8, f.slot ? f.slot.rot : 0, u * u)); g.scale(1, lerp(1, f.slot ? f.slot.sq : 1, u * u)); g.drawImage(f.sprite, -f.r, -f.r, f.r * 2, f.r * 2); g.restore(); }
