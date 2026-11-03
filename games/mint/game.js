@@ -37,7 +37,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'shelf_post', 'shelf_board', 'shelf_top', 'bag_1', 'bag_2', 'bag_3', 'bag_4', 'bag_5', 'bag_6', 'name_paper', 'empty_slot', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 43;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 44;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -880,6 +880,7 @@ const TIPS = [
   ['КОЛЕСО ФОРТУНЫ', 'Подарок с таблички под колесом крутит его: до +100 монет в твой мешочек.'],
 ];
 let tipT = 0;
+const TIPS_ON = false;   // табличка-подсказки скрыта; вернуть: true
 function wrapLines(str, maxW) {
   const out = []; let cur = '';
   for (const w of str.split(' ')) { const t = cur ? cur + ' ' + w : w; if (g.measureText(t).width > maxW && cur) { out.push(cur); cur = w; } else cur = t; }
@@ -1846,7 +1847,7 @@ function draw() {
   g.save();
   drawDust(); drawLegend(); drawWall(); drawPress(); if (SIGN.on) drawSign(); drawStrikeLight(); drawLevelRays(); drawChestShadow();
   drawChest();   // сияния над закрытым сундуком нет: крышка закрыта, свет только при взрыве
-  drawTwinkles(); drawQueue(); drawKazna(); drawTips(frameDt || .016);
+  drawTwinkles(); drawQueue(); drawKazna(); (TIPS_ON && drawTips(frameDt || .016));
   drawWheel();
   drawSpinOverlay();
   if (cine > .01) { g.fillStyle = `rgba(6,3,9,${cine})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120); }
