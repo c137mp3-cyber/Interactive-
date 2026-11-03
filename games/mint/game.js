@@ -31,7 +31,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_lid',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 17;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 18;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -498,7 +498,7 @@ function update(dt) {
   updateEmbers(dt);
   if (build) {
     build.t += dt; build.next -= dt;
-    if (build.next <= 0) { build.next = rand(.07, .14); sfx('clink', 1); if (Math.random() < .6) tiny.push({ sprite: chestCoins.length ? chestCoins[Math.floor(rand(0, chestCoins.length))] : blankCoin(0), x: L.cx + rand(-L.slotHW, L.slotHW), y: L.pileY, vx: rand(-120, 120), vy: -rand(350, 650), r: rand(16, 26), a: rand(0, TAU), va: rand(-8, 8), life: 1.2 }); }
+    if (build.next <= 0) { build.next = rand(.07, .14); sfx('clink', 1); if (lidT < .25 && Math.random() < .6) tiny.push({ sprite: chestCoins.length ? chestCoins[Math.floor(rand(0, chestCoins.length))] : blankCoin(0), x: L.cx + rand(-L.slotHW, L.slotHW), y: L.pileY, vx: rand(-120, 120), vy: -rand(350, 650), r: rand(16, 26), a: rand(0, TAU), va: rand(-8, 8), life: 1.2 }); }
     if (build.t >= build.d) { build = null; doBurst(); }
   }
   if (build) lidT += dt; if (lidFly >= 0) { lidFly += dt; if (lidFly > 1.3) lidFly = -1; }
