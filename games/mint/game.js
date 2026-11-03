@@ -29,9 +29,9 @@ const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
 const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
-const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_lid',
+const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_lid', 'wheel', 'wheel_stand', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 18;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 19;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -226,7 +226,7 @@ function score(j, now) { return (j.free ? -5 : j.tier) + (now - j.at) / 20000; }
 function sortQueue() { const now = performance.now(); queue.sort((a, b) => score(b, now) - score(a, now)); dirty = false; }
 
 function startNext() {
-  if (!belt.length || build || burstHold > 0 || value >= curGoal()) return;
+  if (!belt.length || build || spin || burstHold > 0 || value >= curGoal()) return;
   const G = beltGeo(); if (belt[0].bx < G.endX - 2) return;   // монета ещё едет к упору
   const j = belt.shift(); j.x0 = j.bx; j.king = !!(owner && owner.uid === j.uid);
   j.avatar = avatarOf(j); j.sprite = makeCoin(j.avatar, j.tier, j.free); j.v = j.avatar.v;
@@ -508,7 +508,7 @@ function update(dt) {
     const pool = sprites.length ? sprites.slice(-3) : [{ s: blankCoin(0) }];
     pourCoins(Math.min(80, Math.min(value, curGoal() + PILE.extra) - pileN), i => pool[i % pool.length].s, L.cx, L.pileY - 420);
   }
-  updateBelt(dt); updateAmbient(dt); updateMusic(dt); updateDust(dt);
+  updateBelt(dt); updateSpin(dt); updateAmbient(dt); updateMusic(dt); updateDust(dt);
   if (!job) startNext();
   let target = 0;
   if (job) {
@@ -598,6 +598,123 @@ function drawStrikeLight() {
   // удар пресса освещает нишу и ленту
   lightSpot(L.cx, L.anvil + 10, 430, 'rgba(255,200,120,A)', anvilKick * .55);
   if (job && job.ph >= 4 && job.ph <= 5) lightSpot(L.cx, L.heroY, 520, 'rgba(255,220,160,A)', .05 + job.tier * .025);
+}
+
+// Рулетка: особый подарок крутит колесо, камера наезжает на него, выпадает бонус монет в сундук.
+// WHEEL.gifts — названия подарков TikTok, которые крутят колесо; если пусто, крутит любой подарок ровно за WHEEL.coins монет.
+const WHEEL = { gifts: [], coins: 99, x: 938, y: 1175, r: 108,
+  prizes: [5, 25, 10, 50, 15, 100, 20, 30],          // по часовой, начиная сверху
+  odds:   [20, 12, 18, 6, 16, 2, 14, 12] };          // веса: +100 редко, +5 часто
+const wheelQ = []; let spin = null, wheelAng = 0, cam = 0, wheelTick = -1;
+const isWheelGift = m => WHEEL.gifts.length ? WHEEL.gifts.includes(m.name) : (+m.coins === WHEEL.coins);
+function queueSpin(m) { wheelQ.push({ user: String(m.user || 'Viewer'), uid: String(m.uid || m.user || 'v'), pic: m.pic || '' }); }
+function startSpin() {
+  const who = wheelQ.shift(), tot = WHEEL.odds.reduce((a, b) => a + b, 0); let r = Math.random() * tot, k = 0;
+  while ((r -= WHEEL.odds[k]) > 0) k++;
+  const n = WHEEL.prizes.length, seg = TAU / n, cur = ((wheelAng % TAU) + TAU) % TAU;
+  // колесо вращается по часовой: сектор k должен оказаться под стрелкой сверху
+  const want = (TAU - k * seg) % TAU, extra = ((want - cur) % TAU + TAU) % TAU;
+  spin = { who, k, t: 0, from: wheelAng, to: wheelAng + TAU * 5 + extra + rand(-.35, .35) * seg, d: 5.2, done: false, show: 0 };
+  sfx('whoosh');
+}
+function updateSpin(dt) {
+  const zoomTo = spin ? 1 : 0; cam = lerp(cam, zoomTo, clamp(dt * (spin ? 2.4 : 3)));
+  if (!spin) { wheelAng += Math.sin(time * .6) * .002; if (wheelQ.length && !job && !build && burstHold <= 0 && !flyers.length) startSpin(); return; }
+  const sp = spin; sp.t += dt;
+  const u = clamp((sp.t - .7) / sp.d); wheelAng = lerp(sp.from, sp.to, 1 - (1 - u) ** 4);
+  const n = WHEEL.prizes.length, tick = Math.floor(wheelAng / (TAU / n) + .5);
+  if (tick !== wheelTick) { wheelTick = tick; if (sp.t > .7 && u < 1) { if (ac && !mute && ac.state === 'running') tone(1800 + rand(-60, 60), .04, 'square', .03); spin.flick = 1; } }
+  spin.flick = Math.max(0, (spin.flick || 0) - dt * 8);
+  if (u >= 1 && !sp.done) {   // выпал приз: монеты с лицом крутившего летят в сундук
+    sp.done = true; sp.show = 0.001; const amt = WHEEL.prizes[sp.k], j = { user: sp.who.user, uid: sp.who.uid, pic: sp.who.pic };
+    const a = avatarOf(j), ti = tierOf(amt), sprite = makeCoin(a, ti, false);
+    sfx('ta', Math.min(4, ti + 1)); burst(WHEEL.x, WHEEL.y, TIERS[ti], 40, 600); ring(WHEEL.x, WHEEL.y, 260, TIERS[ti].c[0], .6, 12);
+    sp.pour = { amt, sprite, at: sp.t + 1.2 }; lastLander = { uid: j.uid, user: j.user };
+  }
+  if (sp.done) sp.show += dt;
+  if (sp.pour && sp.t >= sp.pour.at) { const p = sp.pour; sp.pour = null; value += p.amt; pourCoins(Math.min(100, p.amt), () => p.sprite, WHEEL.x, WHEEL.y - 40, 0, .7); if (p.amt > 6) sfx('pour'); sp.end = sp.t + 1.4; }
+  if (sp.end && sp.t >= sp.end) spin = null;
+}
+// Камера: наезд на колесо. Возвращает [масштаб, сдвиг x, сдвиг y] в пикселях экрана.
+function camMat() {
+  if (cam < .002) return [1, 0, 0];
+  const z = 1 + cam * .75, fx = ox + WHEEL.x * scale, fy = oy + WHEEL.y * scale;
+  const tx = lerp(fx, SCW / 2, cam * .85), ty = lerp(fy, SCH * .5, cam * .85);
+  // не показывать край фона: экран после наезда должен оставаться закрытым картинкой
+  return [z, clamp(tx - fx * z, SCW * (1 - z), 0), clamp(ty - fy * z, SCH * (1 - z), 0)];
+}
+function drawWheel() {
+  const X = WHEEL.x, Y = WHEEL.y, R = WHEEL.r, n = WHEEL.prizes.length, seg = TAU / n, act = spin ? 1 : 0;
+  const sway = act ? 0 : Math.sin(time * 1.1) * .02;
+  // подставка
+  g.save(); g.translate(X, Y); g.rotate(sway * .3);
+  g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(0, R + 118, R * 1.1, 16, 0, 0, TAU); g.fill();
+  if (art.wheel_stand) { const st = art.wheel_stand, w = R * 2.6, h = w * st.height / st.width; g.drawImage(st, -w / 2, -R - 40, w, h); }
+  else {
+    g.fillStyle = '#4a2d18'; g.strokeStyle = '#1e1008'; g.lineWidth = 5;
+    g.beginPath(); g.moveTo(-20, 0); g.lineTo(-R * .75, R + 112); g.lineTo(-R * .5, R + 112); g.lineTo(0, 20); g.lineTo(R * .5, R + 112); g.lineTo(R * .75, R + 112); g.lineTo(20, 0); g.closePath(); g.fill(); g.stroke();
+    rr(-R * .95, R + 100, R * 1.9, 26, 8); g.fillStyle = '#6b4426'; g.fill(); g.stroke();
+  }
+  g.restore();
+  // колесо
+  g.save(); g.translate(X, Y); g.rotate(wheelAng + sway);
+  if (art.wheel) { g.drawImage(art.wheel, -R * 1.12, -R * 1.12, R * 2.24, R * 2.24); }
+  else {
+    for (let i = 0; i < n; i++) { g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R, -Math.PI / 2 + (i - .5) * seg, -Math.PI / 2 + (i + .5) * seg); g.closePath(); g.fillStyle = i % 2 ? '#7a1a26' : '#e2b13c'; g.fill(); g.lineWidth = 2; g.strokeStyle = '#3a2208'; g.stroke(); }
+    g.lineWidth = 10; g.strokeStyle = '#b7862a'; g.beginPath(); g.arc(0, 0, R, 0, TAU); g.stroke();
+  }
+  // надписи призов на секторах
+  for (let i = 0; i < n; i++) {
+    const q = -Math.PI / 2 + i * seg; g.save(); g.rotate(q + Math.PI / 2); g.translate(0, -R * .64);
+    const p = WHEEL.prizes[i], big = p >= 50, win = spin && spin.done && spin.k === i;
+    if (win) { g.globalAlpha = .55 + .45 * Math.sin(time * 14); }
+    coinAt(blankCoin(tierOf(p)), 0, R * .2, 13); txt('+' + p, 0, -6, big ? 27 : 24, big ? '#fff1a8' : '#fff5df', 'center', 5);
+    g.restore();
+  }
+  // лампочки по ободу: бегущий огонёк, во время вращения быстрее
+  const nb = 16;
+  for (let i = 0; i < nb; i++) {
+    const q = i / nb * TAU, on = act ? ((Math.floor(time * 18) + i) % 3 === 0) : ((Math.floor(time * 3) + i) % 4 === 0);
+    const bx = Math.cos(q) * (R + 1), by = Math.sin(q) * (R + 1);
+    g.fillStyle = on ? '#fff3b0' : '#7a5a20'; g.beginPath(); g.arc(bx, by, 5.5, 0, TAU); g.fill();
+    if (on) { g.globalAlpha = .35; g.fillStyle = '#ffd36b'; g.beginPath(); g.arc(bx, by, 12, 0, TAU); g.fill(); g.globalAlpha = 1; }
+  }
+  g.fillStyle = '#c99a2e'; g.beginPath(); g.arc(0, 0, 18, 0, TAU); g.fill(); g.lineWidth = 3; g.strokeStyle = '#5a3606'; g.stroke();
+  g.restore();
+  // стрелка сверху, подпрыгивает на каждом секторе
+  if (!art.wheel_stand) {
+    g.save(); g.translate(X, Y - R - 6); g.rotate(-(spin && spin.flick || 0) * .35);
+    g.beginPath(); g.moveTo(-14, -22); g.lineTo(14, -22); g.lineTo(0, 12); g.closePath(); g.fillStyle = '#e8b923'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#5a3606'; g.stroke();
+    g.restore();
+  }
+  // табличка: какой подарок крутит колесо
+  if (!spin) {
+    const ic = wheelIcon, y = Y - R - 58 + Math.sin(time * 2.4) * 4;
+    rr(X - 58, y - 22, 116, 44, 22); g.fillStyle = 'rgba(21,12,14,.85)'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#d9b77a'; g.stroke();
+    if (ic && ic.complete && ic.naturalWidth) g.drawImage(ic, X - 52, y - 19, 38, 38); else txt('🎁', X - 33, y + 1, 26, '#fff', 'center', 0);
+    txt('= 🎡', X + 18, y + 1, 24, '#fff1a8', 'center', 0);
+  }
+}
+let wheelIcon = null;
+function drawSpinOverlay() {
+  if (cam < .01) return;
+  g.fillStyle = `rgba(6,3,9,${cam * .55})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120);
+  halo(WHEEL.x, WHEEL.y, 300, '#ffd36b', .3 * cam);
+  drawWheel();
+  if (!spin) return;
+  const a = avatars.get(spin.who.uid), ps = easeBack(clamp(spin.t / .4)), y = WHEEL.y - WHEEL.r - 120;
+  g.save(); g.translate(WHEEL.x, y); g.scale(ps, ps);
+  rr(-110, -30, 220, 60, 30); g.fillStyle = 'rgba(21,12,14,.92)'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#ffd36b'; g.stroke();
+  if (a) { g.save(); g.beginPath(); g.arc(-80, 0, 24, 0, TAU); g.clip(); g.drawImage(thumb(a), -104, -24, 48, 48); g.restore(); }
+  txt(shortName(spin.who.user, 9), 18, 1, 24, '#fff5df', 'center', 4);
+  g.restore();
+  if (spin.done) {   // выигрыш крупно
+    const p = WHEEL.prizes[spin.k], s2 = easeBack(clamp(spin.show / .4));
+    g.save(); g.translate(WHEEL.x, WHEEL.y - 10); g.scale(s2, s2);
+    rays(0, 0, 40, 220, 14, ['#fff1a8', '#ffb12b'], time * .8, .35);
+    txt('+' + p, 0, 0, 96, '#fff1a8', 'center', 10);
+    g.restore();
+  }
 }
 
 // Рисование
@@ -1108,19 +1225,23 @@ function drawIdle() {
   txt('›', L.cx - 46, y - 8, 96, '#fff1a8', 'center', 0);
 }
 function draw() {
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const [cz, ctx0, cty] = camMat();
+  if (cz > 1) { g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#0c0608'; g.fillRect(0, 0, cv.width, cv.height); }
+  g.setTransform(dpr * cz, 0, 0, dpr * cz, dpr * ctx0, dpr * cty);
   g.imageSmoothingQuality = 'high';
   if (art.bg) {   // фон, затемнение и виньетка запекаются в один холст: это одна отрисовка за кадр
     if (!vig || vig.src !== art.bg) buildVignette();
-    g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(vig, 0, 0); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.setTransform(cz, 0, 0, cz, dpr * ctx0, dpr * cty); g.drawImage(vig, 0, 0); g.setTransform(dpr * cz, 0, 0, dpr * cz, dpr * ctx0, dpr * cty);
   } else { if (!bg) buildBg(); g.drawImage(bg, 0, 0, SCW, SCH); }
   drawFire();
-  g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
+  g.setTransform(dpr * scale * cz, 0, 0, dpr * scale * cz, dpr * (ox * cz + ctx0), dpr * (oy * cz + cty));
   g.save();
   drawDust(); drawLegend(); drawWall(); drawPress(); drawStrikeLight(); drawLevelRays(); drawChestShadow();
   if (build) { const k = build.t / build.d; drawChest(); rays(L.cx, L.pileY, 20, 300 * k, 14, ['#fff1a8', '#ffb12b'], time * 1.6, .4 * k); halo(L.cx, L.pileY, 260 + k * 260, '#ffd36b', .25 + .5 * k); }
   else drawChest();
+  drawWheel();
   drawTwinkles(); drawQueue(); drawTop();
+  drawSpinOverlay();
   if (cine > .01) { g.fillStyle = `rgba(6,3,9,${cine})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120); }
   for (const f of flyers) { if (f.t < 0) continue; const u = clamp(f.t / f.d); g.save(); g.translate(lerp(f.x, f.tx, u), lerp(f.y, f.ty, u * u) - Math.sin(u * Math.PI) * 120); g.rotate(lerp(f.a + 8, f.slot ? f.slot.rot : 0, u * u)); g.scale(1, lerp(1, f.slot ? f.slot.sq : 1, u * u)); g.drawImage(f.sprite, -f.r, -f.r, f.r * 2, f.r * 2); g.restore(); }
   drawIdle(); drawJob();
@@ -1153,6 +1274,8 @@ function onLike(m) { if (m) onLikeUser(m); const n = performance.now(); if (n < 
 
 // Настоящие значки подарков из каталога TikTok, иначе остаются эмодзи
 function onCatalog(list) {
+  const wg = list.find(x => WHEEL.gifts.length ? WHEEL.gifts.includes(x.name) : x.coins === WHEEL.coins);
+  if (wg) { wheelIcon = new Image(); wheelIcon.src = wg.img; }
   giftIcons = TIERS.map((t, i) => {
     const next = TIERS[i + 1] ? TIERS[i + 1].min : Infinity, inTier = list.filter(x => x.coins >= t.min && x.coins < next);
     const pick = inTier.find(x => x.name === t.name) || inTier.sort((a, b) => a.coins - b.coins)[0];
@@ -1160,7 +1283,7 @@ function onCatalog(list) {
     const im = new Image(); im.src = pick.img; return im;
   });
 }
-Live.connect({ onGift: addGift, onLike, onFollow, onStatus: v => { connected = v; }, onCatalog });
+Live.connect({ onGift: m => { addGift(m); if (isWheelGift(m)) queueSpin(m); }, onLike, onFollow, onStatus: v => { connected = v; }, onCatalog });
 Live.keepAwake();
 
 // Полноэкранный режим: кнопка сама исчезает, чтобы не попасть в эфир
@@ -1204,12 +1327,13 @@ if (Live.testMode) {
   btn('➕', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))] + ' ' + Math.floor(rand(100, 999)); onFollow({ user: n, uid: n }); });
   btn('×5', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))]; for (let i = 0; i < 6; i++) addGift({ user: n, uid: n, coins: 1, count: 1 }); });
   btn('🔊', b => { mute = !mute; b.textContent = mute ? '🔇' : '🔊'; });
+  btn('🎡', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))]; const m = { user: n, uid: 'w' + n, coins: WHEEL.coins, count: 1 }; addGift(m); queueSpin(m); });
   btn('🎵', b => { musicOn = !musicOn; b.style.opacity = musicOn ? 1 : .4; });
   botTick();
   bots = true; pn.querySelector('button:nth-of-type(8)').setAttribute('aria-pressed', 'true');
 }
 
-window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, lid: () => ({ b: !!build, t: lidT, fly: lidFly }), sounds: () => Object.keys(sbuf), music: () => music && { src: music.src, paused: music.paused, t: music.currentTime, vol: music.volume }, stat: () => ({ slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
+window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, lid: () => ({ b: !!build, t: lidT, fly: lidFly }), spin: () => spin && { t: spin.t, done: spin.done, k: spin.k }, wheel: m => { addGift(m); queueSpin(m); }, sounds: () => Object.keys(sbuf), music: () => music && { src: music.src, paused: music.paused, t: music.currentTime, vol: music.volume }, stat: () => ({ slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
 resize();
 requestAnimationFrame(loop);
 })();
