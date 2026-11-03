@@ -16,6 +16,7 @@ window.Live = (function () {
         if (m.type === 'gift') h.onGift && h.onGift(m);
         else if (m.type === 'like') h.onLike && h.onLike(m);
         else if (m.type === 'follow') h.onFollow && h.onFollow(m);
+        else if (m.type === 'chat') h.onChat && h.onChat(m);
         else if (m.type === 'status') h.onStatus && h.onStatus(m.live);
         else if (m.type === 'catalog') h.onCatalog && h.onCatalog(m.gifts);
       };

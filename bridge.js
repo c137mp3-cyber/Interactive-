@@ -83,6 +83,7 @@ function go() {
     send({ type: 'gift', coins, count, name, user: userOf(d), uid: uidOf(d), pic: picOf(d) });
   });
   C.on('like', d => send({ type: 'like', count: +d.likeCount || 1, user: userOf(d), uid: uidOf(d), pic: picOf(d) }));
+  C.on('chat', d => send({ type: 'chat', text: String(d.comment || ''), user: userOf(d), uid: uidOf(d), pic: picOf(d) }));
   C.on('follow', d => { console.log('подписка', userOf(d)); send({ type: 'follow', user: userOf(d), uid: uidOf(d), pic: picOf(d) }); });
   C.on('disconnected', () => { setLive(false); console.log('эфир отключён, переподключаюсь'); again(5000); });
   C.connect().then(async st => {
