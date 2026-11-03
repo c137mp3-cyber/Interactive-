@@ -115,12 +115,15 @@ function go() {
   // Лайки: TikTok присылает пачки. Берём likeCount, а если в событии есть общий счётчик комнаты (totalLikeCount),
   // то и его прирост с прошлого события: так серия из 20-30 тапов не превращается в «+1».
   let lastTotal = null, likeEvents = 0;
+  const num = (...v) => { for (const x of v) { const n = +x; if (x !== undefined && x !== null && x !== '' && Number.isFinite(n)) return n; } return NaN; };
   C.on('like', d => {
-    const own = +d.likeCount || 1, tot = +(d.totalLikeCount ?? d.total_like_count ?? d.totalLikes ?? NaN);
-    let n = own;
-    if (Number.isFinite(tot)) { if (lastTotal !== null && tot > lastTotal) n = Math.max(own, Math.min(tot - lastTotal, 100)); lastTotal = tot; }
+    // в разных версиях библиотеки поле называется по-разному: likeCount / count / like_count; общий счётчик: totalLikeCount / total
+    const own = num(d.likeCount, d.count, d.like_count, d.likes, d.likesCount), tot = num(d.totalLikeCount, d.total, d.total_like_count, d.totalLikes);
+    let n = Number.isFinite(own) && own > 0 ? own : 1;
+    if (Number.isFinite(tot)) { if (lastTotal !== null && tot > lastTotal) n = Math.max(n, Math.min(tot - lastTotal, 100)); lastTotal = tot; }
     likeEvents++;
-    if (likeEvents <= 40 || likeEvents % 10 === 0) console.log('лайки', userOf(d), '+' + n, '(likeCount=' + d.likeCount + ', всего в комнате=' + (Number.isFinite(tot) ? tot : '?') + ')');
+    if (likeEvents === 1) { try { const o = {}; for (const k of Object.keys(d)) { const v = d[k]; o[k] = v && typeof v === 'object' ? '[object]' : v; } console.log('лайк, сырое событие:', JSON.stringify(o).slice(0, 400)); } catch (e) {} }
+    if (likeEvents <= 40 || likeEvents % 10 === 0) console.log('лайки', userOf(d), '+' + n, '(поле=' + (Number.isFinite(own) ? own : '—') + ', всего в комнате=' + (Number.isFinite(tot) ? tot : '?') + ')');
     send({ type: 'like', count: n, user: userOf(d), uid: uidOf(d), pic: picOf(d) });
   });
   let chatDump = 0;
