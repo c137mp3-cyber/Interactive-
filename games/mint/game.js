@@ -37,12 +37,13 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'shelf_post', 'shelf_board', 'shelf_top', 'bag_1', 'bag_2', 'bag_3', 'bag_4', 'bag_5', 'bag_6', 'name_paper', 'empty_slot', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 37;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 38;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
 // Экран: заполняем его целиком, без чёрных полос
 const W = 1080, H = 1400;          // сцена: все координаты считаются в ней
+const MINT_SHIFT = 70;   // на сколько сдвинуть механизм влево (в единицах сцены), чтобы справа уместилась Казна
 const SAFE = { top: .13, bottom: .72 }; // TikTok закрывает верх (шапка) и низ (чат): игра живёт между ними
 const HOLE = .70;                     // диаметр отверстия в рамках монет, доля от диаметра монеты
 const CHEST_W = 600;
@@ -57,7 +58,7 @@ function resize() {
   SCW = iw; SCH = ih;
   const tall = ih / iw > 1.3, top = ih * (tall ? SAFE.top : .02), bot = ih * (tall ? SAFE.bottom : .98);
   scale = Math.min(iw / W, (bot - top) / H);
-  ox = (iw - W * scale) / 2; oy = top + ((bot - top) - H * scale) / 2;
+  ox = (iw - W * scale) / 2 - MINT_SHIFT * scale; oy = top + ((bot - top) - H * scale) / 2;
   L.cx = W / 2;
   L.legendY = 70; L.rope = 170; L.heroY = 575; L.anvil = 770; L.pressTop = L.anvil - 370; L.queueTop = 420;
   L.chestTop = 1060; L.chestBot = Math.min(1390, L.chestTop + 330);
@@ -670,7 +671,7 @@ const camT = { x: 940, y: 1125, z: 1.5 }, camF = { x: 940, y: 1125, z: 1.5 };
 // Колесо стоит на полу справа внизу, на свободном месте между чатом TikTok (слева) и нижней панелью. Крупнее прежнего
 function placeWheel() {
   const R = 140, bottom = (SCH * .93 - oy) / scale;   // нижняя граница видимого пола в координатах сцены
-  WHEEL.r = R; WHEEL.x = Math.min(915, (SCW - ox) / scale - R * 1.3);
+  WHEEL.r = R; WHEEL.x = Math.min(915 + MINT_SHIFT, (SCW - ox) / scale - R * 1.3);
   WHEEL.y = clamp(bottom - R * 2.5, 1330, 1590);
 }
 const wheelQ = []; let spin = null, wheelAng = 0, cam = 0, wheelTick = -1;
@@ -801,7 +802,7 @@ function drawLantern() {
 }
 
 // Бумажная табличка на цепях: «Напиши в чат» + COIN. Слово из чата даёт бесплатную монету. Качается, при слове вспыхивает
-const SIGN = { dx: 190, w: 250, h: 160, small: 'Напиши в чат', text: 'COIN' };
+const SIGN = { on: false, dx: 190, w: 250, h: 160, small: 'Напиши в чат', text: 'COIN' };
 let signPaper = null;
 function paperSign() {   // пергамент рисуется кодом один раз; если положить assets/sign_paper.png — возьмётся картинка (только бумага, текст кодом)
   if (signPaper) return signPaper;
@@ -1306,7 +1307,7 @@ const plaqueY = new Map();
 // ===== Казна: личные мешки зрителей на стеллаже-лифте справа =====
 // Каждая монета, упавшая в сундук, ещё и копится в мешке своего хозяина. Мешки растут по уровням, богатые выше.
 // Стеллаж едет вверх-вниз: в тишине показывает всех по очереди, на событие подъезжает к мешку того, кто его сделал.
-const KAZNA = { lv: [1, 10, 50, 200, 500, 1000], x0: 805, top: 330, row: [1, 2, 3, 3, 4], size: [0, 165, 128, 128, 100], idle: 26, focusT: 2.6, maxW: 470 };
+const KAZNA = { lv: [1, 10, 50, 200, 500, 1000], x0: 820, top: 340, row: [1, 2, 3, 3, 4], size: [0, 165, 128, 128, 100], idle: 26, focusT: 2.6, maxW: 520 };
 const COLORS = [[/красн|\bred\b/i, '#d8402f'], [/оранж|orange/i, '#ee8a2a'], [/ж[её]лт|yellow/i, '#e9c53a'], [/золот|gold/i, '#e0a920'], [/зел[её]н|green/i, '#43a84a'],
   [/голуб|cyan/i, '#4fb6e6'], [/син|blue/i, '#3b63d6'], [/фиол|purple|violet/i, '#8a4fd0'], [/розов|pink/i, '#ea6aa8'], [/ч[её]рн|black/i, '#3a3236'], [/бел|white/i, '#f2efe8']];
 const DEFCOL = ['#c9a27a', '#b9b0a4', '#a3b8a2', '#b9a3c4', '#c7a3a0', '#a3b4c6', '#c4b48a'];   // мягкие оттенки, пока зритель не выбрал свой
@@ -1360,7 +1361,7 @@ function bagImg(lv, col) {
 }
 function kGeo() {
   const right = Math.min((SCW - ox) / scale - 14, KAZNA.x0 + KAZNA.maxW), x1 = Math.max(KAZNA.x0 + 250, right), x0 = Math.max(KAZNA.x0, x1 - KAZNA.maxW);
-  const top = KAZNA.top, bot = Math.max(top + 420, Math.min(1300, WHEEL.y - WHEEL.r - 90));
+  const top = KAZNA.top, bot = Math.max(top + 420, Math.min(1395, WHEEL.y - WHEEL.r - 40));
   return { x0, x1, w: x1 - x0, top, bot, h: bot - top, post: 30 };
 }
 function kLayout(G) {
@@ -1428,7 +1429,11 @@ function drawTag(x, y, tw, th, name, coins, big) {
 function drawKazna() {
   const G = kGeoC || kGeo(), Lr = kLay || kLayout(G), oy0 = G.top - kScroll, now = performance.now();
   // ниша стеллажа: тёмная задняя стенка
-  g.save(); rr(G.x0 - 6, G.top - 14, G.w + 12, G.h + 28, 16); g.fillStyle = 'rgba(22,12,9,.78)'; g.fill(); g.restore();
+  // задняя стенка стеллажа: тёмные доски
+  g.save(); const bk = g.createLinearGradient(G.x0, 0, G.x1, 0); bk.addColorStop(0, 'rgba(30,17,11,.95)'); bk.addColorStop(.5, 'rgba(44,26,16,.95)'); bk.addColorStop(1, 'rgba(26,15,10,.95)');
+  g.fillStyle = bk; g.fillRect(G.x0, G.top - 14, G.w, G.h + 28);
+  g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 2; for (let x = G.x0 + 52; x < G.x1 - 20; x += 52) { g.beginPath(); g.moveTo(x, G.top - 14); g.lineTo(x, G.bot + 14); g.stroke(); }
+  g.restore();
   g.save(); g.beginPath(); g.rect(G.x0 - 40, G.top - 14, G.w + 80, G.h + 28); g.clip();
   // стойки едут вместе со стеллажом
   const post = art.shelf_post;
@@ -1477,6 +1482,10 @@ function drawKazna() {
   // затемнение к краям окна: стеллаж уходит в темноту
   const fade = (y0, y1, a0, a1) => { const gr = g.createLinearGradient(0, y0, 0, y1); gr.addColorStop(0, `rgba(14,8,6,${a0})`); gr.addColorStop(1, `rgba(14,8,6,${a1})`); g.fillStyle = gr; g.fillRect(G.x0 - 8, y0, G.w + 16, y1 - y0); };
   fade(G.top - 14, G.top + 40, .9, 0); fade(G.bot - 40, G.bot + 14, 0, .9);
+  const plank = (y, h, ext) => { const bi = art.shelf_board; g.fillStyle = 'rgba(0,0,0,.4)'; g.fillRect(G.x0 - ext + 4, y + h - 2, G.w + ext * 2, 8); if (bi) g.drawImage(bi, G.x0 - ext, y, G.w + ext * 2, h); else { g.fillStyle = '#5a3820'; g.fillRect(G.x0 - ext, y, G.w + ext * 2, h); } };
+  plank(G.top - 40, 34, 22);   // карниз
+  plank(G.bot + 6, 40, 14);    // цоколь: стеллаж стоит на полу
+  g.save(); g.globalAlpha = .45; g.fillStyle = '#000'; g.filter = 'blur(10px)'; g.fillRect(G.x0 - 10, G.bot + 40, G.w + 20, 20); g.restore();
   // эффекты поверх: +N, новый уровень, король, краска, монеты раздачи
   for (const f of kFx) {
     const b = kazna.get(f.uid); if (!b || f.t < 0) continue;
@@ -1788,7 +1797,7 @@ function draw() {
   drawFire();
   g.setTransform(dpr * scale * cz, 0, 0, dpr * scale * cz, dpr * (ox * cz + ctx0), dpr * (oy * cz + cty));
   g.save();
-  drawDust(); drawLegend(); drawWall(); drawPress(); drawSign(); drawStrikeLight(); drawLevelRays(); drawChestShadow();
+  drawDust(); drawLegend(); drawWall(); drawPress(); if (SIGN.on) drawSign(); drawStrikeLight(); drawLevelRays(); drawChestShadow();
   drawChest();   // сияния над закрытым сундуком нет: крышка закрыта, свет только при взрыве
   drawWheel();
   drawTwinkles(); drawQueue(); drawKazna();
@@ -1891,7 +1900,7 @@ if (Live.testMode) {
   btn('👤', b => { sticky = !sticky; b.setAttribute('aria-pressed', sticky); b.title = 'Все подарки от одного зрителя'; }).setAttribute('aria-pressed', 'false');
   btn('×1', b => { series = series === 1 ? 5 : series === 5 ? 10 : series === 10 ? 30 : 1; b.textContent = '×' + series; b.title = 'Сколько штук в одной серии'; });
   // 🖼 стресс-тест аватарок: четыре непохожие картинки подряд, каждое нажатие — следующая ступень монеты (бронза → бриллиант)
-  const TESTPICS = [['Лес', 'forest'], ['Рик и Морти', 'rickmorty'], ['Портрет', 'portrait'], ['Лего-Рик', 'lego']]; let picTier = 0;
+  const TESTPICS = [['forest_wolf', 'forest'], ['rick.c137', 'rickmorty'], ['Николо', 'portrait'], ['legoman_77', 'lego']];   // ники как у настоящих зрителей let picTier = 0;
   btn('🖼', b => { const ti = picTier++ % 5; b.title = 'Аватарки: ' + TIERS[ti].id; TESTPICS.forEach(([n, f], k) => setTimeout(() => { lastTi = ti; addGift({ user: n, uid: 'pic_' + f, pic: 'test/avatar_' + f + '.jpg', coins: [1, 5, 20, 30, 199][ti], count: 1 }); }, k * 400)); });
   btn('🔁', () => { for (let k = 0; k < 10; k++) setTimeout(() => panelGift(lastTi, 1, true), k * 250); });
   btn('🔊', b => { mute = !mute; b.textContent = mute ? '🔇' : '🔊'; });
