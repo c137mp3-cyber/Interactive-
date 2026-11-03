@@ -37,7 +37,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 35;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 36;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -824,13 +824,13 @@ function paperSign() {   // пергамент рисуется кодом од�
 function drawSign() {
   const G = beltGeo(), sx = G.ax + SIGN.dx, top = L.rope + 18, w = SIGN.w, im = art.sign_paper, h = im ? w * im.height / im.width : SIGN.h;
   const cw = im ? w * .418 : w * .34, ry = im ? h * .127 : 15;   // где дырки под кольца
-  const sy = G.by - 402, len = sy - h / 2 - top, ang = Math.sin(time * .9) * .02 + Math.sin(time * 5.5) * .04 * lanternKick;
+  const sy = G.by - 345, len = sy - h / 2 - top, ang = Math.sin(time * .9) * .02 + Math.sin(time * 5.5) * .04 * lanternKick;
   signPulse = Math.max(0, signPulse - .02);
   // сверху деревянная планка на двух цепях (всегда горизонтальная), бумага привязана к ней двумя верёвочками
   const bw = cw + 26, rope = 18, ringY = sy - h / 2 + ry, barY = ringY - rope - 8, Db = barY - top;
   const cs = Math.cos(ang), sn = Math.sin(ang), bcx = sx - sn * Db, bcy = top + cs * Db;
   g.save(); g.translate(sx, top);
-  ironChain(-bw, 0, -bw - sn * Db, cs * Db); ironChain(bw, 0, bw - sn * Db, cs * Db);
+  drawRope(-bw, 0, -bw - sn * Db, cs * Db, 0); drawRope(bw, 0, bw - sn * Db, cs * Db, 0);   // на верёвках, как висят монеты очереди
   g.restore();
   g.save(); g.translate(bcx, bcy); g.rotate(ang * .12);
   g.fillStyle = 'rgba(0,0,0,.35)'; rr(-bw - 8, -4, bw * 2 + 16, 18, 6); g.fill();
@@ -848,9 +848,11 @@ function drawSign() {
   g.save(); g.scale(pz, pz); g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
   g.font = `800 29px ${FONT}`; g.fillStyle = 'rgba(255,240,200,.55)'; g.fillText(SIGN.small, 0, -h * .25 + 1.5);   // вдавленный текст
   g.fillStyle = '#3d2410'; g.fillText(SIGN.small, 0, -h * .25);
-  g.font = `900 70px ${FONT}`; g.lineWidth = 3; g.strokeStyle = 'rgba(255,240,200,.5)'; g.strokeText(SIGN.text, 1, h * .17 + 3);
-  const tg = g.createLinearGradient(0, h * .17 - 36, 0, h * .17 + 36); tg.addColorStop(0, '#a52a14'); tg.addColorStop(1, '#6a130a');
-  g.fillStyle = tg; g.fillText(SIGN.text, 0, h * .17 + 2);
+  // COIN тем же «чернильным» шрифтом, что и «Напиши в чат»: тёмно-коричневые чернила, вдавленные в бумагу
+  g.font = `800 66px ${FONT}`; try { g.letterSpacing = '5px'; } catch (e) {}
+  g.fillStyle = 'rgba(255,240,200,.6)'; g.fillText(SIGN.text, 2.5, h * .17 + 3.5);
+  g.fillStyle = '#3d2410'; g.fillText(SIGN.text, 2.5, h * .17 + 2);
+  try { g.letterSpacing = '0px'; } catch (e) {}
   g.restore();
   g.restore();
   if (signPulse > .01) { halo(sx, sy, 250, '#ffd36b', .45 * signPulse); star(sx + Math.sin(time * 30) * 80, sy - 10, 22 * signPulse, signPulse, '#fff1a8'); }
