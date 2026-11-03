@@ -37,7 +37,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 34;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 35;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -127,6 +127,20 @@ function engrave(src, ti, n) {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = y + dy, xq = xx + dx; if (yy >= 0 && yy < n && xq >= 0 && xq < n) { s += L0[yy * n + xq]; k++; } }
     Ln[y * n + xx] = s / k;
   }
+  // густая мелкая фактура (лес, шерсть, шум) превращается в кашу: гасим мелкие детали там, где их слишком много, крупные формы оставляем
+  const box = (src, r) => {
+    const o = new Float32Array(N), t = new Float32Array(N), w = r * 2 + 1;
+    for (let y = 0; y < n; y++) { let sum = 0; for (let k = -r; k <= r; k++) sum += src[y * n + Math.min(n - 1, Math.max(0, k))]; for (let xx = 0; xx < n; xx++) { t[y * n + xx] = sum / w; sum += src[y * n + Math.min(n - 1, xx + r + 1)] - src[y * n + Math.max(0, xx - r)]; } }
+    for (let xx = 0; xx < n; xx++) { let sum = 0; for (let k = -r; k <= r; k++) sum += t[Math.min(n - 1, Math.max(0, k)) * n + xx]; for (let y = 0; y < n; y++) { o[y * n + xx] = sum / w; sum += t[Math.min(n - 1, y + r + 1) * n + xx] - t[Math.max(0, y - r) * n + xx]; } }
+    return o;
+  };
+  const low = box(Ln, Math.round(n / 18)), det = new Float32Array(N);
+  for (let i = 0; i < N; i++) det[i] = Math.abs(Ln[i] - low[i]);
+  const energy = box(det, Math.round(n / 14));
+  for (let i = 0; i < N; i++) { const g0 = clamp(.07 / (energy[i] + .02), .2, 1); Ln[i] = low[i] + (Ln[i] - low[i]) * g0; }
+  let eSum = 0; for (let i = 0; i < N; i++) eSum += energy[i];
+  const busy = clamp((eSum / N - .065) / .07);   // 0 = гладкая картинка, 1 = вся в мелкой фактуре: сильнее сглаживаем
+  if (busy > .05) { const sm = box(Ln, Math.round(n / 28) + 1); for (let i = 0; i < N; i++) Ln[i] += (sm[i] - Ln[i]) * busy * .8; }
   // растягиваем контраст: тёмные и светлые фото выглядят одинаково
   const sorted = Float32Array.from(Ln).sort(), lo = sorted[Math.floor(N * .03)], hi = sorted[Math.floor(N * .97)], span = Math.max(.08, hi - lo);
   for (let i = 0; i < N; i++) Ln[i] = clamp((Ln[i] - lo) / span);
@@ -1679,6 +1693,9 @@ if (Live.testMode) {
   // комбо: «👤» все подарки от одного зрителя; «×N» серия одним подарком (как в TikTok: одна розa ×10); «🔁» 10 подарков подряд от одного зрителя
   btn('👤', b => { sticky = !sticky; b.setAttribute('aria-pressed', sticky); b.title = 'Все подарки от одного зрителя'; }).setAttribute('aria-pressed', 'false');
   btn('×1', b => { series = series === 1 ? 5 : series === 5 ? 10 : series === 10 ? 30 : 1; b.textContent = '×' + series; b.title = 'Сколько штук в одной серии'; });
+  // 🖼 стресс-тест аватарок: четыре непохожие картинки подряд, каждое нажатие — следующая ступень монеты (бронза → бриллиант)
+  const TESTPICS = [['Лес', 'forest'], ['Рик и Морти', 'rickmorty'], ['Портрет', 'portrait'], ['Лего-Рик', 'lego']]; let picTier = 0;
+  btn('🖼', b => { const ti = picTier++ % 5; b.title = 'Аватарки: ' + TIERS[ti].id; TESTPICS.forEach(([n, f], k) => setTimeout(() => { lastTi = ti; addGift({ user: n, uid: 'pic_' + f, pic: 'test/avatar_' + f + '.jpg', coins: [1, 5, 20, 30, 199][ti], count: 1 }); }, k * 400)); });
   btn('🔁', () => { for (let k = 0; k < 10; k++) setTimeout(() => panelGift(lastTi, 1, true), k * 250); });
   btn('🔊', b => { mute = !mute; b.textContent = mute ? '🔇' : '🔊'; });
   btn('🎡', () => { const n = NAMES[Math.floor(rand(0, NAMES.length))]; const m = { user: n, uid: 'w' + n, coins: WHEEL.coins, count: 1 }; addGift(m); queueSpin(m); });
