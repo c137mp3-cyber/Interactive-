@@ -37,7 +37,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'shelf_post', 'shelf_board', 'shelf_top', 'bag_1', 'bag_2', 'bag_3', 'bag_4', 'bag_5', 'bag_6', 'name_paper', 'empty_slot', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 41;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 42;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -45,11 +45,12 @@ ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (
 const W = 1080, H = 1400;          // сцена: все координаты считаются в ней
 // Фон 768x1376 прижат к правому краю и увеличен так, чтобы центральная каменная арка встала ровно за прессом.
 const BGW = 768, BGH = 1376, ARCH_X = 407;   // ширина/высота bg.png и x центра арки на нём
-const ARCH_FRAC = .49;                        // где на экране (доля ширины) должна быть арка и, значит, центр кузни
-const KAZNA_LEFT = .68;                       // левый край стеллажа (доля ширины экрана)
+const MINT_SHIFT = 120;                       // механизм сдвинут влево, чтобы справа уместилась Казна
+const ARCH_FRAC = null;                        // где на экране (доля ширины) должна быть арка и, значит, центр кузни
+const KAZNA_X0 = 880;                        // левый край стеллажа (доля ширины экрана)
 function bgRect() {
-  const cover = Math.max(SCW / BGW, SCH / BGH), s = Math.max(cover, SCW * (1 - ARCH_FRAC) / (BGW - ARCH_X));
-  return { s, x: SCW - BGW * s, y: SCH / 2 - BGH * s / 2, w: BGW * s, h: BGH * s };
+  const s = Math.max(SCW / BGW, SCH / BGH);
+  return { s, x: SCW / 2 - BGW * s / 2, y: SCH / 2 - BGH * s / 2, w: BGW * s, h: BGH * s };
 }
 const SAFE = { top: .13, bottom: .72 }; // TikTok закрывает верх (шапка) и низ (чат): игра живёт между ними
 const HOLE = .70;                     // диаметр отверстия в рамках монет, доля от диаметра монеты
@@ -65,7 +66,7 @@ function resize() {
   SCW = iw; SCH = ih;
   const tall = ih / iw > 1.3, top = ih * (tall ? SAFE.top : .02), bot = ih * (tall ? SAFE.bottom : .98);
   scale = Math.min(iw / W, (bot - top) / H);
-  ox = bgRect().x + ARCH_X * bgRect().s - (W / 2) * scale; oy = top + ((bot - top) - H * scale) / 2;
+  ox = (iw - W * scale) / 2 - MINT_SHIFT * scale; oy = top + ((bot - top) - H * scale) / 2;
   L.cx = W / 2;
   L.legendY = 70; L.rope = 170; L.heroY = 575; L.anvil = 770; L.pressTop = L.anvil - 370; L.queueTop = 420;
   L.chestTop = 1060; L.chestBot = Math.min(1390, L.chestTop + 330);
@@ -678,7 +679,7 @@ const camT = { x: 940, y: 1125, z: 1.5 }, camF = { x: 940, y: 1125, z: 1.5 };
 // Колесо стоит на полу справа внизу, на свободном месте между чатом TikTok (слева) и нижней панелью. Крупнее прежнего
 function placeWheel() {
   const R = 165, bottom = (SCH * .93 - oy) / scale;   // нижняя граница видимого пола в координатах сцены
-  WHEEL.r = R; WHEEL.x = Math.min((SCW * .70 - ox) / scale, (SCW - ox) / scale - R * 1.3);
+  WHEEL.r = R; WHEEL.x = Math.min(915 + MINT_SHIFT - 45, (SCW - ox) / scale - R * 1.3);
   WHEEL.y = clamp(bottom - R * 2.5, 1330, 1590);
 }
 const wheelQ = []; let spin = null, wheelAng = 0, cam = 0, wheelTick = -1;
@@ -755,11 +756,11 @@ function drawWheel() {
   // лампочки по ободу: бегущий огонёк, во время вращения быстрее
   const nb = art.wheel ? 24 : 16, br = art.wheel ? R * .915 : R + 1, q0 = art.wheel ? -Math.PI / 2 + 7.5 * Math.PI / 180 : 0;
   for (let i = 0; i < nb; i++) {
-    const q = q0 + i / nb * TAU, on = act ? ((Math.floor(time * 9) + i) % 2 === 0) : ((Math.floor(time * 2.5) + i) % 2 === 0);
-    const bx = Math.cos(q) * br, by = Math.sin(q) * br;
-    if (art.wheel) { if (!on) { g.fillStyle = 'rgba(30,15,5,.55)'; g.beginPath(); g.arc(bx, by, R * .045, 0, TAU); g.fill(); } }
-    else { g.fillStyle = on ? '#fff3b0' : '#7a5a20'; g.beginPath(); g.arc(bx, by, 5.5, 0, TAU); g.fill(); }
-    if (on) { g.globalAlpha = .35; g.fillStyle = '#ffd36b'; g.beginPath(); g.arc(bx, by, 12, 0, TAU); g.fill(); g.globalAlpha = 1; }
+    const q = q0 + i / nb * TAU, on = i % 2 === 0, bx = Math.cos(q) * br, by = Math.sin(q) * br;
+    if (art.wheel) {
+      if (!on) { g.strokeStyle = 'rgba(22,10,4,.92)'; g.lineWidth = R * .15; g.beginPath(); g.arc(0, 0, br, q - TAU / nb / 2, q + TAU / nb / 2); g.stroke(); }   // тёмный сектор ободка (зебра)
+    } else { g.fillStyle = on ? '#fff3b0' : '#7a5a20'; g.beginPath(); g.arc(bx, by, 5.5, 0, TAU); g.fill(); }
+    if (on) { g.globalAlpha = (act ? .5 : .3) + .15 * Math.sin(time * (act ? 14 : 3) + i); g.fillStyle = '#ffd36b'; g.beginPath(); g.arc(bx, by, 12, 0, TAU); g.fill(); g.globalAlpha = 1; }
   }
   if (!art.wheel) { g.fillStyle = '#c99a2e'; g.beginPath(); g.arc(0, 0, 18, 0, TAU); g.fill(); g.lineWidth = 3; g.strokeStyle = '#5a3606'; g.stroke(); }
   g.restore();
@@ -1367,7 +1368,7 @@ function bagImg(lv, col) {
   x.putImageData(d, 0, 0); bagCache.set(k, c); return c;
 }
 function kGeo() {
-  const xl = (SCW * KAZNA_LEFT - ox) / scale, x1 = (SCW - ox) / scale - 14, x0 = Math.max(xl, x1 - KAZNA.maxW);
+  const x1 = Math.max(KAZNA_X0 + 250, Math.min((SCW - ox) / scale - 14, KAZNA_X0 + KAZNA.maxW)), x0 = Math.max(KAZNA_X0, x1 - KAZNA.maxW);
   const top = KAZNA.top, bot = Math.max(top + 420, Math.min(1395, WHEEL.y - WHEEL.r * 1.15));
   return { x0, x1, w: x1 - x0, top, bot, h: bot - top, post: 30 };
 }
