@@ -31,7 +31,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_lid', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 20;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 21;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -187,7 +187,7 @@ function blankCoin(ti) {
 const queue = []; let dirty = false, job = null;
 const wall = [], parts = [], flyers = [], tiny = [], rings = [], spots = [], twinkles = [];
 const donors = new Map(); let topDonors = [];
-let chain = 0, lidT = 0, lidFly = -1, build = null, burstHold = 0, lvlBadge = 0, cine = 0, lvlT = 0, hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, pressShake = 0, chestPop = -1, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
+let carry = null, barV = 0, landedExtra = 0, chain = 0, lidT = 0, lidFly = -1, build = null, burstHold = 0, lvlBadge = 0, cine = 0, lvlT = 0, hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, pressShake = 0, chestPop = -1, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const combos = new Map(), likeAcc = new Map(), followed = new Set(), ownerWins = new Map();
@@ -230,7 +230,7 @@ function startNext() {
   const G = beltGeo(); if (belt[0].bx < G.endX - 2) return;   // монета ещё едет к упору
   const j = belt.shift(); j.x0 = j.bx; j.king = !!(owner && owner.uid === j.uid);
   j.avatar = avatarOf(j); j.sprite = makeCoin(j.avatar, j.tier, j.free); j.v = j.avatar.v;
-  j.ph = 0; j.t = 0; j.dur = [.42, .15, .1, .22, .3 + j.tier * .08, .6 + j.tier * .45, .42];
+  j.ph = 0; j.t = 0; j.dur = [.7, .15, .1, .32, .3 + j.tier * .08, .6 + j.tier * .45, .42];
   const q = queue.length + belt.length;
   const slow = lerp(TEMPO, 1, clamp((q - 2) / 20));   // чем длиннее очередь, тем меньше замедление
   j.speed = (q <= 2 ? 1 : lerp(1.25, 4, clamp((q - 2) / 40))) / slow;
@@ -245,7 +245,8 @@ function nextPhase() {
   if (j.ph === 5) { sfx('ta', j.tier); if (j.tier >= 2) burst(L.cx, L.heroY, TIERS[j.tier], TIERS[j.tier].burst, 700); if (j.tier >= 3) { flash = j.tier === 4 ? .5 : .25; flashColor = TIERS[j.tier].c[1]; } }
   if (j.ph === 6) {   // в сундук падает столько монет, сколько стоит подарок, и на каждой лицо дарителя
     const n = Math.min(80, Math.max(1, j.value)), sp = j.sprite;
-    const S = n > 1 ? pourCoins(n - 1, () => sp, L.cx, L.heroY, .08) : 0; if (n > 6) sfx('pour');
+    const w = j.value / n; j.flyW = (n - 1) * w;
+    const S = n > 1 ? pourCoins(n - 1, () => sp, L.cx, L.heroY, .08, 1, { w }) : 0; if (n > 6) sfx('pour');
     j.slot = takeSlot(); j.dur[6] = .42 + S * j.speed + .1;
     addWall(j);
   }
@@ -257,7 +258,10 @@ function strike(j) {
   burst(L.cx, L.anvil - 30, TIERS[j.tier], 14 + j.tier * 6, 560);
   ring(L.cx, L.anvil + 30, 170 + j.tier * 30, '#ffffff', .35, 12);
   if (j.avatar.v !== j.v) j.sprite = makeCoin(j.avatar, j.tier, j.free);
+  puff(L.cx, L.anvil - 40, 7); sfx('steam');
 }
+// прибавить к сундуку; монета, которая переполнила сундук, сама же и переходит в следующий
+function commitValue(v, sprite) { const goal = curGoal(); if (value < goal && value + v >= goal) carry = sprite; value += v; }
 function land(j) {
   for (const f of flyers) if (f.slot) { bake(f.sprite, f.slot); } flyers.length = 0;   // докидываем мелочь, чтобы монета зрителя легла сверху
   bake(j.sprite, j.slot); sfx('clink', j.tier); chestKick = 1; total++;
@@ -265,7 +269,7 @@ function land(j) {
   ring(j.slot.x, j.slot.y, 70, TIERS[j.tier].c[0], .3, 6);
   spots.push({ x: j.slot.x, y: j.slot.y, tier: j.tier }); if (spots.length > 40) spots.shift();
   sprites.push({ s: j.sprite, tier: j.tier }); if (sprites.length > 30) sprites.shift();
-  value += j.value; if (!j.free) lastLander = j;
+  landedExtra = Math.max(0, landedExtra - (j.flyW || 0)); commitValue(j.value, j.sprite); if (!j.free) lastLander = j;
   job = null;
 }
 function dropMedal(it) {
@@ -288,7 +292,7 @@ function startBuild() {
 }
 // Сундук переполнен: дрожит, светится и взрывается фонтаном монет
 function doBurst() {
-  value = Math.max(0, value - curGoal()); level++;   // остаток целиком переходит в следующий сундук, ничего не теряется
+  value = Math.max(0, value - curGoal()); level++; barV = 0; landedExtra = 0;   // остаток целиком переходит в следующий сундук, ничего не теряется
   chain = value >= curGoal() ? chain + 1 : 0;
   lanternKick = 1; sfx('win', 4); flash = .55; flashColor = '#fff1a8'; chestPop = 0; chestKick = 0;
   const pool = chestCoins.length ? chestCoins.slice() : [blankCoin(0)];
@@ -360,11 +364,11 @@ function bake(sprite, s) {
   mx.drawImage(sprite, -s.r, -s.r, s.r * 2, s.r * 2); mx.restore();
 }
 // n монет летят в сундук одна за другой; первая через delay секунд
-function pourCoins(n, pick, fx, fy, delay = 0, spread = 1) {
+function pourCoins(n, pick, fx, fy, delay = 0, spread = 1, extra = {}) {
   const S = Math.min(1.6, n * .04) * spread;
   for (let i = 0; i < n; i++) {
     const slot = takeSlot();
-    flyers.push({ sprite: pick(i), x: fx + rand(-60, 60), y: fy + rand(-30, 30), t: -delay - i * S / Math.max(1, n), d: rand(.42, .55), tx: slot.x, ty: slot.y, slot, a: rand(0, TAU), r: slot.r });
+    flyers.push({ sprite: pick(i), x: fx + rand(-60, 60), y: fy + rand(-30, 30), t: -delay - i * S / Math.max(1, n), d: rand(.42, .55), tx: slot.x, ty: slot.y, slot, a: rand(0, TAU), r: slot.r, ...extra });
   }
   return S;
 }
@@ -434,6 +438,7 @@ function sfx(k, ti) {
   if (k === 'build') { noise(1.3, 250, 1.2, .07, 0, 'bandpass', 3200); tone(110, 1.3, 'sawtooth', .03, 0, 440); }
   if (k === 'pour') { const n = 8 + Math.floor(rand(0, 6)); for (let i = 0; i < n; i++) { const at = rand(0, .9), r = rand(.85, 1.2); [2800, 4150].forEach((f, q) => tone(f * r, .2, 'sine', .035 / (q + 1), at)); noise(.03, 5000, 1, .03, at, 'highpass'); } }
   if (k === 'king') { [[392, 0, .14], [392, .15, .14], [523, .3, .5], [659, .3, .5], [784, .3, .6]].forEach(([f, at, d]) => { tone(f, d, 'sawtooth', .045, at); tone(f, d, 'square', .02, at); bell(f * 2, d + .3, .04, at); }); }
+  if (k === 'steam') { noise(.7, 4500, .6, .045, .05, 'highpass'); noise(.5, 1200, .5, .02, .05, 'bandpass'); }
   if (k === 'spark') noise(.03 + Math.random() * .03, rand(2500, 6500), 2, .035, 0, 'bandpass');
 }
 let crackleOn = false;
@@ -503,10 +508,10 @@ function update(dt) {
   }
   if (build) lidT += dt; if (lidFly >= 0) { lidFly += dt; if (lidFly > 1.3) lidFly = -1; }
   burstHold = Math.max(0, burstHold - dt); lvlBadge = Math.max(0, lvlBadge - dt);
-  if (!build && !job && burstHold <= 0 && !flyers.length && value >= curGoal()) startBuild();
-  if (!build && !job && burstHold <= 0 && !flyers.length && pileN < Math.min(value, curGoal() + PILE.extra)) {   // остаток после взрыва: монеты того, кто взорвал
-    const pool = sprites.length ? sprites.slice(-3) : [{ s: blankCoin(0) }];
-    pourCoins(Math.min(80, Math.min(value, curGoal() + PILE.extra) - pileN), i => pool[i % pool.length].s, L.cx, L.pileY - 420);
+  if (!build && !job && !spin && cam < .03 && burstHold <= 0 && !flyers.length && value >= curGoal()) startBuild();
+  if (!build && !job && !spin && burstHold <= 0 && !flyers.length && pileN < Math.min(value, curGoal() + PILE.extra)) {   // остаток после взрыва: монеты того, кто взорвал
+    const sp = carry || (sprites.length ? sprites[sprites.length - 1].s : blankCoin(0));
+    pourCoins(Math.min(80, Math.min(value, curGoal() + PILE.extra) - pileN), () => sp, L.cx, L.pileY - 420);
   }
   updateBelt(dt); updateSpin(dt); updateAmbient(dt); updateMusic(dt); updateDust(dt);
   if (!job) startNext();
@@ -522,7 +527,7 @@ function update(dt) {
     pressY = target;
   } else pressY = lerp(pressY, 0, clamp(dt * 8));
   for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.life -= dt; if (p.life <= 0) { parts.splice(i, 1); continue; } p.vy += 1100 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
-  for (let i = flyers.length - 1; i >= 0; i--) { const f = flyers[i]; f.t += dt; if (f.t > f.d) { flyers.splice(i, 1); if (f.slot) bake(f.sprite, f.slot); if (Math.random() < .35) sfx('clink', 0); chestKick = Math.max(chestKick, .5); } }
+  for (let i = flyers.length - 1; i >= 0; i--) { const f = flyers[i]; f.t += dt; if (f.t > f.d) { flyers.splice(i, 1); if (f.slot) bake(f.sprite, f.slot); if (f.w) landedExtra += f.w; if (f.commit) commitValue(f.commit, f.sprite); if (Math.random() < .35) sfx('clink', 0); chestKick = Math.max(chestKick, .5); } }
   for (let i = tiny.length - 1; i >= 0; i--) { const p = tiny[i]; p.life -= dt; if (p.life <= 0 || p.y > H + 700) { tiny.splice(i, 1); continue; } p.vy += 1400 * dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.spin) { p.ang += p.vang * dt; if (p.grow) p.r += p.grow * dt; } else p.a += p.va * dt; }
   for (let i = rings.length - 1; i >= 0; i--) { rings[i].t += dt; if (rings[i].t > rings[i].d) rings.splice(i, 1); }
   for (let i = twinkles.length - 1; i >= 0; i--) { twinkles[i].t += dt; if (twinkles[i].t > twinkles[i].d) twinkles.splice(i, 1); }
@@ -605,6 +610,7 @@ function drawStrikeLight() {
 const WHEEL = { gifts: [], coins: 99, x: 940, y: 1125, r: 100,
   prizes: [5, 25, 10, 50, 15, 100, 20, 30],          // по часовой, начиная сверху
   odds:   [20, 12, 18, 6, 16, 2, 14, 12] };          // веса: +100 редко, +5 часто
+const camT = { x: 940, y: 1125, z: 1.75 }, camF = { x: 940, y: 1125, z: 1.75 };
 const wheelQ = []; let spin = null, wheelAng = 0, cam = 0, wheelTick = -1;
 const isWheelGift = m => WHEEL.gifts.length ? WHEEL.gifts.includes(m.name) : (+m.coins === WHEEL.coins);
 function queueSpin(m) { wheelQ.push({ user: String(m.user || 'Viewer'), uid: String(m.uid || m.user || 'v'), pic: m.pic || '' }); }
@@ -618,7 +624,10 @@ function startSpin() {
   sfx('whoosh');
 }
 function updateSpin(dt) {
-  const zoomTo = spin ? 1 : 0; cam = lerp(cam, zoomTo, clamp(dt * (spin ? 2.4 : 3)));
+  const dia = job && job.tier === 4 && (job.ph === 4 || job.ph === 5);
+  const zoomTo = spin || dia ? 1 : 0; cam = lerp(cam, zoomTo, clamp(dt * (zoomTo ? 2.4 : 3)));
+  if (spin) Object.assign(camT, { x: WHEEL.x, y: WHEEL.y, z: 1.75 }); else if (dia) Object.assign(camT, { x: L.cx, y: L.heroY, z: 1.22 });
+  camF.x = lerp(camF.x, camT.x, clamp(dt * 4)); camF.y = lerp(camF.y, camT.y, clamp(dt * 4)); camF.z = lerp(camF.z, camT.z, clamp(dt * 4));
   if (!spin) { wheelAng += Math.sin(time * .6) * .002; if (wheelQ.length && !job && !build && burstHold <= 0 && !flyers.length) startSpin(); return; }
   const sp = spin; sp.t += dt;
   const u = clamp((sp.t - .7) / sp.d); wheelAng = lerp(sp.from, sp.to, 1 - (1 - u) ** 4);
@@ -632,13 +641,13 @@ function updateSpin(dt) {
     sp.pour = { amt, sprite, at: sp.t + 1.2 }; lastLander = { uid: j.uid, user: j.user };
   }
   if (sp.done) sp.show += dt;
-  if (sp.pour && sp.t >= sp.pour.at) { const p = sp.pour; sp.pour = null; value += p.amt; pourCoins(Math.min(100, p.amt), () => p.sprite, WHEEL.x, WHEEL.y - 40, 0, .7); if (p.amt > 6) sfx('pour'); sp.end = sp.t + 1.4; }
+  if (sp.pour && sp.t >= sp.pour.at) { const p = sp.pour; sp.pour = null; const nn = Math.min(100, p.amt); pourCoins(nn, () => p.sprite, WHEEL.x, WHEEL.y - 40, 0, .7, { commit: p.amt / nn }); if (p.amt > 6) sfx('pour'); sp.end = sp.t + 1.4; }
   if (sp.end && sp.t >= sp.end) spin = null;
 }
 // Камера: наезд на колесо. Возвращает [масштаб, сдвиг x, сдвиг y] в пикселях экрана.
 function camMat() {
   if (cam < .002) return [1, 0, 0];
-  const z = 1 + cam * .75, fx = ox + WHEEL.x * scale, fy = oy + WHEEL.y * scale;
+  const z = 1 + cam * (camF.z - 1), fx = ox + camF.x * scale, fy = oy + camF.y * scale;
   const tx = lerp(fx, SCW / 2, cam * .85), ty = lerp(fy, SCH * .5, cam * .85);
   // не показывать край фона: экран после наезда должен оставаться закрытым картинкой
   return [z, clamp(tx - fx * z, SCW * (1 - z), 0), clamp(ty - fy * z, SCH * (1 - z), 0)];
@@ -720,7 +729,7 @@ function drawLantern() {
 }
 
 function drawSpinOverlay() {
-  if (cam < .01) return;
+  if (cam < .01 || camT.x !== WHEEL.x || camT.y !== WHEEL.y) return;
   g.fillStyle = `rgba(6,3,9,${cam * .55})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120);
   halo(WHEEL.x, WHEEL.y, 300, '#ffd36b', .3 * cam);
   drawWheel();
@@ -789,6 +798,39 @@ function halo(x, y, r, color, a) {
   g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); g.restore();
 }
 // монета вращается, видно ребро
+// переворот через верх: монету подбросили, видно ребро
+function flipCoin(sp, ti, x, y, r, ang) {
+  const c = Math.cos(ang), e = Math.sin(ang) * r * .09;
+  g.fillStyle = TIERS[ti].c[2]; g.beginPath(); g.ellipse(x, y + e, r * .985, Math.max(2, Math.abs(c) * r), 0, 0, TAU); g.fill();
+  g.save(); g.translate(x, y); g.scale(1, Math.max(.04, Math.abs(c))); g.drawImage(sp, -r, -r, r * 2, r * 2); g.restore();
+}
+// свежеотчеканенная монета горячая: оранжевый накал остывает до цвета металла
+function heatGlow(x, y, r, h) {
+  if (h <= .01) return;
+  halo(x, y, r * 2, '#ff7a1a', .55 * h);
+  g.save(); g.globalCompositeOperation = 'overlay'; g.globalAlpha = .8 * h; g.fillStyle = '#ff5a00'; g.beginPath(); g.arc(x, y, r * .97, 0, TAU); g.fill(); g.restore();
+}
+const steam = [];
+function puff(x, y, n) { for (let i = 0; i < n; i++) steam.push({ x: x + rand(-50, 50), y: y + rand(-20, 10), vx: rand(-15, 15), vy: -rand(50, 110), r: rand(14, 26), life: rand(.9, 1.6), max: 1.6 }); }
+function drawSteam(dt) {
+  for (let i = steam.length - 1; i >= 0; i--) {
+    const p = steam[i]; p.life -= dt; if (p.life <= 0) { steam.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.r += 34 * dt;
+    const a = clamp(p.life / p.max) * .22, gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+    gr.addColorStop(0, `rgba(235,230,225,${a})`); gr.addColorStop(1, 'rgba(235,230,225,0)'); g.fillStyle = gr; g.fillRect(p.x - p.r, p.y - p.r, p.r * 2, p.r * 2);
+  }
+}
+// кристаллы вокруг бриллиантовой монеты: задние рисуются до монеты, передние после
+function crystals(x, y, r, a, front) {
+  for (let k = 0; k < 9; k++) {
+    const q = time * .9 + k / 9 * TAU, z = Math.sin(q); if ((z > 0) !== front) continue;
+    const px = x + Math.cos(q) * r * 1.55, py = y + z * r * .32 - Math.cos(q * 2) * 12, s2 = (16 + z * 7) * a;
+    g.save(); g.translate(px, py); g.rotate(time * 2 + k);
+    const gr = g.createLinearGradient(-s2, -s2, s2, s2); gr.addColorStop(0, '#ffffff'); gr.addColorStop(.5, k % 2 ? '#7ff3ff' : '#ff9cf0'); gr.addColorStop(1, '#4aa9d8');
+    g.beginPath(); g.moveTo(0, -s2 * 1.4); g.lineTo(s2 * .8, 0); g.lineTo(0, s2 * 1.4); g.lineTo(-s2 * .8, 0); g.closePath(); g.fillStyle = gr; g.globalAlpha = .9; g.fill();
+    g.globalAlpha = 1; g.lineWidth = 1.5; g.strokeStyle = 'rgba(255,255,255,.8)'; g.stroke(); g.restore();
+  }
+}
 function spinCoin(sp, ti, x, y, r, ang) {
   const s = Math.cos(ang), e = Math.sin(ang) * r * .09;
   g.fillStyle = TIERS[ti].c[2]; g.beginPath(); g.ellipse(x + e, y, Math.max(2, Math.abs(s) * r), r * .985, 0, 0, TAU); g.fill();
@@ -904,8 +946,8 @@ function drawWall() {
 }
 // Лента-накопитель: монеты выезжают из арки, едут к прессу и выстраиваются друг за другом у упора.
 // Кто выйдет из арки следующим, решает очередь (дорогие подарки раньше), а на ленте порядок уже не меняется.
-const BELT = { n: 3, r: 52, sp: 118, vmax: 300, acc: 700, scale: .7 };
-const belt = []; let beltScroll = 0, beltV = 0;
+const BELT = { n: 3, r: 60, sp: 132, vmax: 170, acc: 230, scale: .7 };
+const belt = []; let beltScroll = 0, beltV = 0, beltLayer = null;
 const easeSine = t => -(Math.cos(Math.PI * t) - 1) / 2;
 // точка фона (в пикселях bg.png) -> координаты сцены
 function bgToStage(bx, by) {
@@ -921,7 +963,7 @@ function beltGeo() {
   return { bx0, px0, post, by, bh, endX: post - BELT.r - 6, cy: by + 5 - BELT.r, floor: f ? f.y : by + 260 };
 }
 function updateBelt(dt) {
-  const G = beltGeo(), spawnX = G.bx0 - BELT.r - 10;   // монета появляется глубоко в арке и выезжает из темноты
+  const G = beltGeo(), spawnX = G.bx0 - BELT.r - 30;   // монета появляется глубоко в арке и выезжает из темноты
   // из арки выходит следующая монета, если на ленте есть место
   if (queue.length && belt.length < BELT.n) {
     sortQueue(); const j = queue.shift(), last = belt[belt.length - 1];
@@ -942,24 +984,37 @@ function drawBelt() {
   // ножки до пола, с тенью
   if (art.leg) {
     const top = by + bh * .55, h = clamp(G.floor - top, 120, 460), w = h * art.leg.width / art.leg.height;
-    [.32, .8].forEach(k => {
+    [.5, .88].forEach((k, li) => {
       const x = lerp(bx0, G.post, k);
       const sh = g.createRadialGradient(x, top + h, 4, x, top + h, w * .9); sh.addColorStop(0, 'rgba(0,0,0,.55)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
       g.save(); g.translate(0, top + h); g.scale(1, .22); g.translate(0, -(top + h)); g.fillStyle = sh; g.fillRect(x - w, top + h - w, w * 2, w * 2); g.restore();
       g.drawImage(art.leg, x - w / 2, top, w, h);
+      // ближняя к арке ножка в красном отсвете печи
+      if (li === 0) lightSpot(x - w * .3, top + h * .45, w * .9, 'rgba(255,80,40,A)', .12 + .04 * Math.sin(time * 7));
     });
   }
-  if (art.belt) {
-    const bw = art.belt.width * BELT.scale, off = beltScroll % bw;
-    g.save(); g.beginPath(); g.rect(bx0, by - 4, px0 + 4 - bx0, bh + 8); g.clip();
-    for (let x = off - bw; x < px0 + 4; x += bw) g.drawImage(art.belt, x, by, bw + 1, bh);
-    g.restore();
+  if (art.belt) {   // лента рисуется в отдельный слой и плавно растворяется в темноте арки, без тёмного прямоугольника
+    const bw = art.belt.width * BELT.scale, off = beltScroll % bw, lw = px0 + 4 - bx0, lh = bh + 8, rs = scale * dpr;
+    if (!beltLayer) beltLayer = document.createElement('canvas');
+    const cw = Math.max(2, Math.ceil(lw * rs)), ch = Math.max(2, Math.ceil(lh * rs));
+    if (beltLayer.width !== cw || beltLayer.height !== ch) { beltLayer.width = cw; beltLayer.height = ch; }
+    const bc = beltLayer.getContext('2d');
+    bc.setTransform(1, 0, 0, 1, 0, 0); bc.globalCompositeOperation = 'source-over'; bc.clearRect(0, 0, cw, ch);
+    bc.setTransform(rs, 0, 0, rs, -bx0 * rs, -(by - 4) * rs);
+    for (let x = off - bw + bx0 - (bx0 % bw); x < px0 + 4; x += bw) bc.drawImage(art.belt, x, by, bw + 1, bh);
+    const k = .16 + .05 * Math.sin(time * 7) + .03 * Math.sin(time * 17), gl = bc.createLinearGradient(bx0, 0, bx0 + 300, 0);
+    gl.addColorStop(0, `rgba(255,90,40,${k * 1.6})`); gl.addColorStop(1, 'rgba(255,90,40,0)');
+    bc.globalCompositeOperation = 'source-atop'; bc.fillStyle = gl; bc.fillRect(bx0, by - 4, 300, lh);
+    const fd = bc.createLinearGradient(bx0, 0, bx0 + 130, 0); fd.addColorStop(0, 'rgba(0,0,0,0)'); fd.addColorStop(.3, 'rgba(0,0,0,.3)'); fd.addColorStop(1, 'rgba(0,0,0,1)');
+    bc.globalCompositeOperation = 'destination-in'; bc.fillStyle = fd; bc.fillRect(bx0, by - 4, lw, lh);
+    bc.fillStyle = '#000'; bc.fillRect(bx0 + 130, by - 4, lw, lh);
+    g.drawImage(beltLayer, bx0, by - 4, lw, lh);
   } else { g.fillStyle = '#231b20'; rr(bx0, by + 2, px0 + 4 - bx0, 20, 4); g.fill(); }
   // монеты на ленте: тень, заготовка, над ней аватарка того, чья монета
   g.save(); g.beginPath(); g.rect(bx0, 0, W, H); g.clip();
   const now = performance.now();
   belt.forEach((j, i) => {
-    const al = clamp((j.bx - bx0 - 10) / 190) ** 1.4; if (al <= 0) return;
+    const al = clamp((j.bx - bx0 - 15) / 140) ** 1.5; if (al <= 0) return;
     const r = BELT.r, y = G.cy - (beltV > 20 ? Math.abs(Math.sin(beltScroll * .09 + i)) * 1.6 : 0), x = j.bx, t = TIERS[j.tier];
     g.globalAlpha = al * .5; g.fillStyle = '#000'; g.beginPath(); g.ellipse(x + 4, by + 6, r * .85, 6, 0, 0, TAU); g.fill();
     g.globalAlpha = al; g.drawImage(blankCoin(j.tier), x - r, y - r, r * 2, r * 2);
@@ -977,15 +1032,6 @@ function drawBelt() {
     if (i === 0 && j.bx >= G.endX - 2) { g.globalAlpha = al * (.35 + .25 * Math.sin(time * 5)); g.strokeStyle = t.c[0]; g.lineWidth = 3; g.beginPath(); g.arc(x, y, r + 6, 0, TAU); g.stroke(); }
   });
   g.restore(); g.globalAlpha = 1;
-  // темнота проёма поверх начала ленты: лента уходит вглубь арки, красный отсвет печи на ней
-  if (art.belt) {
-    const fw = 210, fd = g.createLinearGradient(bx0, 0, bx0 + fw, 0);
-    fd.addColorStop(0, 'rgba(10,4,4,1)'); fd.addColorStop(.35, 'rgba(14,6,5,.75)'); fd.addColorStop(1, 'rgba(14,6,5,0)');
-    g.fillStyle = fd; g.fillRect(bx0 - 2, by - 6, fw, bh + 12);
-    const gl = g.createLinearGradient(bx0, 0, bx0 + 260, 0), k = .16 + .05 * Math.sin(time * 7) + .03 * Math.sin(time * 17);
-    gl.addColorStop(0, 'rgba(255,90,40,0)'); gl.addColorStop(.3, `rgba(255,90,40,${k})`); gl.addColorStop(1, 'rgba(255,90,40,0)');
-    g.save(); g.globalCompositeOperation = 'lighter'; g.fillStyle = gl; g.fillRect(bx0, by - 3, 260, bh * .55); g.restore();
-  }
 }
 function drawPressArt() {
   const cx = L.cx, a = L.anvil, fr = art.press_frame, ph = art.press_head, F = FRAME, sf = F.s, hole = F.hole;
@@ -1032,14 +1078,15 @@ function drawPress() {
 function drawJob() {
   const j = job; if (!j) return;
   const a = L.anvil, cx = L.cx, u = clamp(j.t / j.dur[j.ph]), t = TIERS[j.tier];
-  if (j.ph === 0) { const e = easeSine(u), x = lerp(j.x0 ?? cx - 200, cx, e), r = lerp(BELT.r, 76, e), y = lerp(beltGeo().cy, a - 26, e) - Math.sin(u * Math.PI) * 34; g.drawImage(blankCoin(j.tier), x - r, y - r, r * 2, r * 2); }
+  if (j.ph === 0) { const e = easeInOut(u), x = lerp(j.x0 ?? cx - 200, cx, e), r = lerp(BELT.r, 76, e), y = lerp(beltGeo().cy, a - 26, easeIn(u)) - Math.sin(u * Math.PI) * 22 + (u > .85 ? Math.sin((u - .85) / .15 * Math.PI) * -5 : 0); g.drawImage(blankCoin(j.tier), x - r, y - r, r * 2, r * 2); }
   else if (j.ph === 1) coinAt(blankCoin(j.tier), cx, a - 26, 76);
   else if (j.ph === 2) coinAt(j.sprite, cx, a - 26, 82, 1, .72 + .28 * u * u);
-  else if (j.ph === 3) { coinAt(j.sprite, cx, a - 26, 82, 1, 1 + .1 * Math.sin(u * Math.PI)); glint(cx, a - 26, 80, u); }
-  else if (j.ph === 4) {
-    const r = lerp(82, heroR(j), easeBack(u)), y = lerp(a - 26, L.heroY, easeOut(u));
+  else if (j.ph === 3) { coinAt(j.sprite, cx, a - 26, 82, 1, 1 + .1 * Math.sin(u * Math.PI)); heatGlow(cx, a - 26, 82, 1 - u * .25); if (Math.random() < .3) puff(cx, a - 60, 1); }
+  else if (j.ph === 4) {   // горячую монету подбрасывает с плиты: кувыркается и остывает по дороге наверх
+    const r = lerp(82, heroR(j), easeOut(u)), y = lerp(a - 26, L.heroY, easeBack(u)) - Math.sin(u * Math.PI) * 60;
     if (j.tier >= 2) halo(cx, y, r * 2.2, t.c[1], u * .6);
-    spinCoin(j.sprite, j.tier, cx, y, r, u * TAU * (j.tier >= 3 ? 3 : 2));
+    flipCoin(j.sprite, j.tier, cx, y, r, easeOut(u) * TAU * (j.tier >= 3 ? 3 : 2));
+    heatGlow(cx, y, r, (1 - u) * .75);
   } else if (j.ph === 5) {
     const r = heroR(j), y = L.heroY + Math.sin(time * 3) * 8, tt = j.t, intro = easeBack(clamp(tt / .35));
     if (j.tier >= 1) {
@@ -1049,9 +1096,17 @@ function drawJob() {
       if (j.tier >= 3) rays(cx, L.heroY, r * .45, len * .7, n, cols.slice().reverse(), -time * .5, al * .8);
     }
     halo(cx, y, r * (1.8 + j.tier * .25), t.c[1], .3 + j.tier * .1);
+    if (j.tier === 4) {   // бриллиант: столп света сверху, радужные кольца, кристаллы на орбите
+      const pg = g.createLinearGradient(0, -400, 0, y); pg.addColorStop(0, 'rgba(180,250,255,0)'); pg.addColorStop(1, `rgba(180,250,255,${.28 * intro})`);
+      g.save(); g.globalCompositeOperation = 'lighter'; g.fillStyle = pg; g.beginPath(); g.moveTo(cx - r * .5, -400); g.lineTo(cx + r * .5, -400); g.lineTo(cx + r * 1.15, y); g.lineTo(cx - r * 1.15, y); g.fill();
+      for (let k = 0; k < 3; k++) { g.strokeStyle = `hsla(${(time * 120 + k * 120) % 360},100%,70%,${.5 * intro})`; g.lineWidth = 6 - k; g.beginPath(); g.arc(cx, y, r * (1.25 + k * .13), time * (1.4 - k * .5) + k, time * (1.4 - k * .5) + k + Math.PI * 1.3); g.stroke(); }
+      g.restore();
+      crystals(cx, y, r, intro, false);
+    }
     if (j.king) { rays(cx, L.heroY, r * .6, 330 * intro, 16, ['#fff1a8', '#ffb12b'], -time * .4, .3); halo(cx, y, r * 2.4, '#ffd36b', .4); }
     coinAt(j.sprite, cx, y, r);
     glint(cx, y, r * .97, (tt % 1.5) / .7, .5);
+    if (j.tier === 4) crystals(cx, y, r, intro, true);
     if (j.king) drawCrown(cx, y - r - 52 + Math.sin(time * 3) * 6 - (1 - intro) * 200, 150 * intro);
     const ns = 4 + j.tier * 2;
     for (let i = 0; i < ns; i++) { const q = i / ns * TAU + time * .4, d = r * (1.14 + .08 * Math.sin(time * 2 + i)); star(cx + Math.cos(q) * d, y + Math.sin(q) * d, 12 + j.tier * 4, Math.max(0, Math.sin(time * 4 + i * 1.7)) * intro, i % 2 ? '#ffffff' : t.c[0]); }
@@ -1171,17 +1226,17 @@ function drawTop() {
 }
 // Крышка: перед взрывом захлопывается на кучу монет, сундук трясётся, при взрыве крышку срывает и она улетает.
 // Если есть картинка chest_lid.png, рисуется она, иначе крышка рисуется кодом.
+function lidState() { if (build) { const u = clamp(lidT / .32); return [u >= 1 ? 1 : easeBack(u), 0]; } if (lidFly >= 0) return [1, lidFly]; return [0, 0]; }
+const LID_T = 34;   // толщина крышки в пикселях chest_back.png
 function drawLid(a) {
-  let f = 0, fly = 0;
-  if (build) { const u = clamp(lidT / .32); f = easeBack(u) ; if (u >= 1) f = 1; }
-  else if (lidFly >= 0) { f = 1; fly = lidFly; }
+  let [f, fly] = lidState();
   if (f <= .02) return;
   const cs = a.cs, bx0 = 105, bx1 = 578, fx0 = 18, fx1 = 672, by = 10, fy = 246;     // углы проёма на chest_back.png
   const lerpf = (p, q) => lerp(p, q, clamp(f, 0, 1.12));
   let x0 = lerpf(bx0, fx0), x1 = lerpf(bx1, fx1), y1 = lerpf(by, fy);
   g.save();
   if (fly) { const e = fly, up = -(260 * e - 700 * e * e) * 1; g.translate(0, up * cs * 1.5); g.translate(a.x + a.w / 2, a.y + 120 * cs); g.rotate(e * 2.4 * (e < 1 ? 1 : 0)); g.translate(-(a.x + a.w / 2), -(a.y + 120 * cs)); g.globalAlpha = clamp((1.3 - e) / .5); }
-  const X = v => a.x + v * cs, Y = v => a.y + v * cs;
+  const T = LID_T * clamp(f), X = v => a.x + v * cs, Y = v => a.y + v * cs - T * cs;
   const quad = (u0, u1) => ({ l0: lerp(bx0, x0, u0), r0: lerp(bx1, x1, u0), l1: lerp(bx0, x0, u1), r1: lerp(bx1, x1, u1) });
   if (art.chest_lid) {   // картинка режется на полоски и ложится в трапецию: даёт перспективу при закрытии
     const im = art.chest_lid, N = 18, hh = Math.max(4, (y1 - by) * cs);
@@ -1199,6 +1254,17 @@ function drawLid(a) {
     g.fillStyle = '#e0c070'; g.beginPath(); g.arc(X((x0 + x1) / 2), Y(y1) - 6 * cs, 7 * cs, 0, TAU); g.fill();
     g.restore();
   }
+  // объём: передняя стенка крышки и боковые грани
+  if (T > 1) {
+    const yT = Y(y1), yB = Y(y1) + T * cs, L0 = X(x0), R0 = X(x1);
+    g.fillStyle = '#3b2213'; g.beginPath(); g.moveTo(X(bx0), Y(by)); g.lineTo(L0, yT); g.lineTo(L0, yB); g.lineTo(X(bx0), Y(by) + T * cs * .4); g.fill();
+    g.beginPath(); g.moveTo(X(bx1), Y(by)); g.lineTo(R0, yT); g.lineTo(R0, yB); g.lineTo(X(bx1), Y(by) + T * cs * .4); g.fill();
+    if (art.chest_front) g.drawImage(art.chest_front, 0, 4, art.chest_front.width, 60, L0, yT, R0 - L0, yB - yT);
+    else { g.fillStyle = '#6b4426'; g.fillRect(L0, yT, R0 - L0, yB - yT); }
+    const sh = g.createLinearGradient(0, yT, 0, yB); sh.addColorStop(0, 'rgba(255,220,160,.18)'); sh.addColorStop(.2, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,.35)');
+    g.fillStyle = sh; g.fillRect(L0, yT, R0 - L0, yB - yT);
+    g.lineWidth = 3; g.strokeStyle = '#1e1008'; g.strokeRect(L0, yT, R0 - L0, yB - yT);
+  }
   g.restore();
 }
 function drawChest() {
@@ -1206,9 +1272,9 @@ function drawChest() {
   // прогресс
   const goal = GOALS[Math.min(level, GOALS.length - 1)], py = L.goalY, pw = 620;
   rr(cx - pw / 2, py - 19, pw, 38, 19); g.fillStyle = 'rgba(14,8,10,.85)'; g.fill();
-  const p = clamp(value / goal);
+  barV = lerp(barV, Math.min(goal, value + landedExtra), .12); const p = clamp(barV / goal);
   if (p > .02) { rr(cx - pw / 2 + 4, py - 15, (pw - 8) * p, 30, 15); const m = g.createLinearGradient(cx - pw / 2, 0, cx + pw / 2, 0); m.addColorStop(0, '#ffb12b'); m.addColorStop(1, '#fff19a'); g.fillStyle = m; g.fill(); }
-  txt(Math.min(value, goal) + ' / ' + goal, cx, py + 1, 25, '#fff', 'center', 5);
+  txt(Math.min(Math.round(barV), goal) + ' / ' + goal, cx, py + 1, 25, '#fff', 'center', 5);
   txt('★' + (level + 1), cx - pw / 2 - 42, py + 1, 32, '#fff1a8');
   if (L.art) {
     const a = L.art, base = a.y + a.h, k = 1 + kick * .004;
@@ -1219,7 +1285,9 @@ function drawChest() {
     g.save(); g.globalAlpha = .55; g.fillStyle = '#000'; g.filter = 'blur(10px)';   // тень на полу, чтобы сундук не висел
     g.beginPath(); g.ellipse(cx + 8, base - 8, a.w * .52, 34, 0, 0, TAU); g.fill(); g.restore();
     g.drawImage(art.chest_back, a.x, a.y, a.w, a.h);
-    g.drawImage(mound, cx - MW / 2, L.mBase - MH);
+    const [lf, lfly] = lidState();
+    if (lf > .02 && !lfly) { g.save(); g.beginPath(); g.rect(cx - MW, a.y + (10 - LID_T * clamp(lf)) * a.cs + (1 - clamp(lf)) * -400, MW * 2, 2000); g.clip(); g.drawImage(mound, cx - MW / 2, L.mBase - MH); g.restore(); }
+    else g.drawImage(mound, cx - MW / 2, L.mBase - MH);
     drawLid(a);
     g.drawImage(art.chest_front, a.x, a.fy, a.w, a.fh);
     g.restore(); return;
@@ -1267,7 +1335,7 @@ function draw() {
   drawSpinOverlay();
   if (cine > .01) { g.fillStyle = `rgba(6,3,9,${cine})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120); }
   for (const f of flyers) { if (f.t < 0) continue; const u = clamp(f.t / f.d); g.save(); g.translate(lerp(f.x, f.tx, u), lerp(f.y, f.ty, u * u) - Math.sin(u * Math.PI) * 120); g.rotate(lerp(f.a + 8, f.slot ? f.slot.rot : 0, u * u)); g.scale(1, lerp(1, f.slot ? f.slot.sq : 1, u * u)); g.drawImage(f.sprite, -f.r, -f.r, f.r * 2, f.r * 2); g.restore(); }
-  drawIdle(); drawJob();
+  drawIdle(); drawJob(); drawSteam(frameDt);
   for (const p of tiny) {
     g.globalAlpha = clamp(p.life / .6) * (p.grow ? clamp(1 - (p.r - 60) / 140) : 1);
     if (p.spin) spinCoin(p.sprite, p.tier, p.x, p.y, p.r, p.ang);
@@ -1284,9 +1352,9 @@ function draw() {
   if (Live.testMode) { g.beginPath(); g.roundRect(SCW - 64, 8, 56, 24, 6); g.fillStyle = '#b3122f'; g.fill(); g.font = '900 13px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText('TEST', SCW - 36, 21); }
   else if (!connected) { g.fillStyle = '#ff3b4d'; g.beginPath(); g.arc(SCW - 20, 20, 7 + Math.sin(time * 6) * 2, 0, TAU); g.fill(); }
 }
-let last = performance.now(), fpsN = 0, fpsT = 0, fps = 60;
+let frameDt = 1 / 60, last = performance.now(), fpsN = 0, fpsT = 0, fps = 60;
 function loop(now) {
-  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  const dt = Math.min(.05, (now - last) / 1000); last = now; frameDt = dt;
   fpsN++; fpsT += dt; if (fpsT >= 1) { fps = fpsN / fpsT; fpsN = 0; fpsT = 0; }
   update(dt); draw(); requestAnimationFrame(loop);
 }
