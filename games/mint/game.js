@@ -26,7 +26,7 @@ const COMBO = { gap: 20000, max: 10, steps: [5, 10] };
 // Бесплатные монеты: за каждые LIKES.step лайков от одного зрителя и за первую подписку в эфире. Двигают полосу на +1
 const LIKES = { step: 25, odds: [.50, .35, .15] };          // бронза / серебро / золото
 // Чат: слово COIN (и «коин») из чата даёт бесплатную бронзовую монету, не чаще раза в CHAT.cool мс от одного зрителя
-const CHAT = { cool: 8000,   // любое сообщение = монета, раз в 8 секунд от одного человека
+const CHAT = { word: /coin|коин|койн|монет/i, cool: 8000,   // монета только за слово coin / коин, не чаще раза в 8 секунд от одного человека
  
   king: /король|корол|king/i, kingCool: 3000,                       // слово подсвечивает текущего короля
   wheel: /колес|wheel/i, wheelNeed: 8, wheelDecay: 45000, wheelUser: 15000, wheelCool: 240000 };   // колесо: 8 сообщений примерно за 45 с, бонусный оборот не чаще раза в 4 минуты
@@ -38,7 +38,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 31;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 32;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -243,6 +243,7 @@ function onChat(m) {
       queueSpin(w); wheelChat.v = 0; wheelChat.who = []; wheelChat.cool = now + CHAT.wheelCool; signPulse = 1;
     }
   }
+  if (!CHAT.word.test(text)) return;
   signPulse = 1;
   if ((chatAt.has(uid) && now - chatAt.get(uid) < CHAT.cool) || !freeRoom()) return;
   chatAt.set(uid, now); freeCoin(m, 'chat', 0);
