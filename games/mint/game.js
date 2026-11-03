@@ -29,9 +29,9 @@ const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
 const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
-const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg',
+const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_lid',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 16;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 17;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -187,7 +187,7 @@ function blankCoin(ti) {
 const queue = []; let dirty = false, job = null;
 const wall = [], parts = [], flyers = [], tiny = [], rings = [], spots = [], twinkles = [];
 const donors = new Map(); let topDonors = [];
-let build = null, burstHold = 0, lvlBadge = 0, cine = 0, lvlT = 0, hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, pressShake = 0, chestPop = -1, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
+let chain = 0, lidT = 0, lidFly = -1, build = null, burstHold = 0, lvlBadge = 0, cine = 0, lvlT = 0, hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, pressShake = 0, chestPop = -1, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const combos = new Map(), likeAcc = new Map(), followed = new Set(), ownerWins = new Map();
@@ -283,12 +283,13 @@ function addWall(j) {
   rest.slice(7).forEach(dropMedal);
 }
 function startBuild() {
-  build = { t: 0, d: 1.25, next: 0 }; sfx('build');
+  build = { t: 0, d: chain ? 1.0 : 1.6, next: 0 }; lidT = 0; sfx('build');
   if (lastLander) { const b = (ownerWins.get(lastLander.uid) || 0) + 1; ownerWins.set(lastLander.uid, b); owner = { uid: lastLander.uid, user: lastLander.user, b, at: performance.now() + 1300 }; }
 }
 // Сундук переполнен: дрожит, светится и взрывается фонтаном монет
 function doBurst() {
-  value = Math.min(value - curGoal(), Math.floor(curGoal() * .8)); level++;
+  value = Math.max(0, value - curGoal()); level++;   // остаток целиком переходит в следующий сундук, ничего не теряется
+  chain = value >= curGoal() ? chain + 1 : 0;
   sfx('win', 4); flash = .55; flashColor = '#fff1a8'; chestPop = 0; chestKick = 0;
   const pool = chestCoins.length ? chestCoins.slice() : [blankCoin(0)];
   for (let i = 0; i < 72; i++) {
@@ -298,7 +299,7 @@ function doBurst() {
   }
   ring(L.cx, L.pileY, 760, '#fff1a8', .8, 20); ring(L.cx, L.pileY, 520, '#ffb12b', .65, 14, -.12); ring(L.cx, L.pileY, 300, '#ffffff', .4, 10);
   burst(L.cx, L.pileY, TIERS[2], 100, 1300);
-  lvlT = 1.6; lvlBadge = 1.9; spots.length = 0; burstHold = 1.1; chestCoins.length = 0;
+  lvlT = 1.6; lvlBadge = 1.9; spots.length = 0; burstHold = chain ? .55 : 1.1; lidFly = 0; chestCoins.length = 0;
   initMound();
 }
 function heroStart(j) {
@@ -500,6 +501,7 @@ function update(dt) {
     if (build.next <= 0) { build.next = rand(.07, .14); sfx('clink', 1); if (Math.random() < .6) tiny.push({ sprite: chestCoins.length ? chestCoins[Math.floor(rand(0, chestCoins.length))] : blankCoin(0), x: L.cx + rand(-L.slotHW, L.slotHW), y: L.pileY, vx: rand(-120, 120), vy: -rand(350, 650), r: rand(16, 26), a: rand(0, TAU), va: rand(-8, 8), life: 1.2 }); }
     if (build.t >= build.d) { build = null; doBurst(); }
   }
+  if (build) lidT += dt; if (lidFly >= 0) { lidFly += dt; if (lidFly > 1.3) lidFly = -1; }
   burstHold = Math.max(0, burstHold - dt); lvlBadge = Math.max(0, lvlBadge - dt);
   if (!build && !job && burstHold <= 0 && !flyers.length && value >= curGoal()) startBuild();
   if (!build && !job && burstHold <= 0 && !flyers.length && pileN < Math.min(value, curGoal() + PILE.extra)) {   // остаток после взрыва: монеты того, кто взорвал
@@ -1027,6 +1029,38 @@ function drawTop() {
     prevY = py + h / 2 - 2; prevX = cx + Math.sin(sw) * 40;
   });
 }
+// Крышка: перед взрывом захлопывается на кучу монет, сундук трясётся, при взрыве крышку срывает и она улетает.
+// Если есть картинка chest_lid.png, рисуется она, иначе крышка рисуется кодом.
+function drawLid(a) {
+  let f = 0, fly = 0;
+  if (build) { const u = clamp(lidT / .32); f = easeBack(u) ; if (u >= 1) f = 1; }
+  else if (lidFly >= 0) { f = 1; fly = lidFly; }
+  if (f <= .02) return;
+  const cs = a.cs, bx0 = 105, bx1 = 578, fx0 = 18, fx1 = 672, by = 10, fy = 246;     // углы проёма на chest_back.png
+  const lerpf = (p, q) => lerp(p, q, clamp(f, 0, 1.12));
+  let x0 = lerpf(bx0, fx0), x1 = lerpf(bx1, fx1), y1 = lerpf(by, fy);
+  g.save();
+  if (fly) { const e = fly, up = -(260 * e - 700 * e * e) * 1; g.translate(0, up * cs * 1.5); g.translate(a.x + a.w / 2, a.y + 120 * cs); g.rotate(e * 2.4 * (e < 1 ? 1 : 0)); g.translate(-(a.x + a.w / 2), -(a.y + 120 * cs)); g.globalAlpha = clamp((1.3 - e) / .5); }
+  const X = v => a.x + v * cs, Y = v => a.y + v * cs;
+  const quad = (u0, u1) => ({ l0: lerp(bx0, x0, u0), r0: lerp(bx1, x1, u0), l1: lerp(bx0, x0, u1), r1: lerp(bx1, x1, u1) });
+  if (art.chest_lid) {   // картинка режется на полоски и ложится в трапецию: даёт перспективу при закрытии
+    const im = art.chest_lid, N = 18, hh = Math.max(4, (y1 - by) * cs);
+    for (let k = 0; k < N; k++) {
+      const q = quad(k / N, (k + 1) / N), l = lerp(q.l0, q.l1, .5), r = lerp(q.r0, q.r1, .5);
+      g.drawImage(im, 0, im.height * k / N, im.width, im.height / N + 1, X(l), Y(by) + hh * k / N, (r - l) * cs, hh / N + 1);
+    }
+  } else {
+    g.beginPath(); g.moveTo(X(bx0 + 4), Y(by)); g.lineTo(X(bx1 - 4), Y(by)); g.lineTo(X(x1), Y(y1)); g.lineTo(X(x0), Y(y1)); g.closePath();
+    const wd = g.createLinearGradient(0, Y(by), 0, Y(y1)); wd.addColorStop(0, '#6e4425'); wd.addColorStop(1, '#8a5a30');
+    g.fillStyle = wd; g.fill(); g.lineWidth = 4; g.strokeStyle = '#2a170c'; g.stroke();
+    g.save(); g.clip();
+    g.strokeStyle = 'rgba(0,0,0,.22)'; g.lineWidth = 2; for (let k = 1; k < 6; k++) { g.beginPath(); g.moveTo(X(lerp(bx0, bx1, k / 6)), Y(by)); g.lineTo(X(lerp(x0, x1, k / 6)), Y(y1)); g.stroke(); }
+    g.fillStyle = '#c9a65a'; [.2, .8].forEach(k => { const t1 = lerp(x0, x1, k), t0 = lerp(bx0, bx1, k); g.beginPath(); g.moveTo(X(t0 - 12), Y(by)); g.lineTo(X(t0 + 12), Y(by)); g.lineTo(X(t1 + 18), Y(y1)); g.lineTo(X(t1 - 18), Y(y1)); g.fill(); });
+    g.fillStyle = '#e0c070'; g.beginPath(); g.arc(X((x0 + x1) / 2), Y(y1) - 6 * cs, 7 * cs, 0, TAU); g.fill();
+    g.restore();
+  }
+  g.restore();
+}
 function drawChest() {
   const cx = L.cx, t = L.chestTop, b = L.chestBot, kick = chestKick * 12, W2 = 310;
   // прогресс
@@ -1046,6 +1080,7 @@ function drawChest() {
     g.beginPath(); g.ellipse(cx + 8, base - 8, a.w * .52, 34, 0, 0, TAU); g.fill(); g.restore();
     g.drawImage(art.chest_back, a.x, a.y, a.w, a.h);
     g.drawImage(mound, cx - MW / 2, L.mBase - MH);
+    drawLid(a);
     g.drawImage(art.chest_front, a.x, a.fy, a.w, a.fh);
     g.restore(); return;
   }
@@ -1174,7 +1209,7 @@ if (Live.testMode) {
   bots = true; pn.querySelector('button:nth-of-type(8)').setAttribute('aria-pressed', 'true');
 }
 
-window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, sounds: () => Object.keys(sbuf), music: () => music && { src: music.src, paused: music.paused, t: music.currentTime, vol: music.volume }, stat: () => ({ slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
+window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, lid: () => ({ b: !!build, t: lidT, fly: lidFly }), sounds: () => Object.keys(sbuf), music: () => music && { src: music.src, paused: music.paused, t: music.currentTime, vol: music.volume }, stat: () => ({ slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
 resize();
 requestAnimationFrame(loop);
 })();
