@@ -11,11 +11,12 @@ const FONT = 'Rubik,system-ui,sans-serif';
 const TIERS = [
   { id: 'bronze',  min: 1,   name: 'Rose',         emoji: '🌹', c: ['#f6c594', '#b36d33', '#6b3a17'], burst: 10 },
   { id: 'silver',  min: 5,   name: 'Finger Heart', emoji: '🫰', c: ['#f8fafc', '#aab6c4', '#5f6a78'], burst: 16 },
-  { id: 'gold',    min: 30,  name: 'Doughnut',     emoji: '🍩', c: ['#fff3ad', '#ecbb22', '#8f640a'], burst: 26 },
-  { id: 'ruby',    min: 100, name: 'Hand Hearts',  emoji: '🫶', c: ['#ffb0bb', '#e0244d', '#760a24'], burst: 40 },
-  { id: 'diamond', min: 500, name: 'Galaxy',       emoji: '🌌', c: ['#ecfdff', '#5cdcf8', '#2868d0'], burst: 70 }
+  { id: 'gold',    min: 20,  name: 'Dombra',       emoji: '🪕', c: ['#fff3ad', '#ecbb22', '#8f640a'], burst: 26 },
+  { id: 'ruby',    min: 30,  name: 'Doughnut',     emoji: '🍩', c: ['#ffb0bb', '#e0244d', '#760a24'], burst: 40 },
+  { id: 'diamond', min: 199, name: 'Night Star',   emoji: '🌠', c: ['#ecfdff', '#5cdcf8', '#2868d0'], burst: 70 }
 ];
 const tierOf = coins => { let n = 0; TIERS.forEach((t, i) => { if (coins >= t.min) n = i; }); return n; };
+const VALUE_FIX = { 199: 200 };   // подарок за 199 даёт ровно 200 монет в сундук (два сундука); можно добавить свои цены
 const MAX_CHESTS = 3;   // одна монета наполняет не больше стольких сундуков подряд, остальное сгорает
 const GOALS = [100];   // сколько монет нужно на каждый взрыв сундука; можно задать рост: [100, 300, 700]
 // Гравировка: картинка или буква зрителя переводится в цвет металла монеты с рельефом
@@ -30,9 +31,9 @@ const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
 const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
-const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
+const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 23;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 24;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -202,7 +203,7 @@ function addGift(m) {
     combos.set(uid, { n: combo, last: now });
     tier = Math.min(4, tier + COMBO.steps.filter(s => combo >= s).length);
   }
-  const j = { user: String(m.user || 'Viewer'), uid, pic: m.pic || '', coins, count, tier, base, combo, free, src: m.src || '', value: free ? 1 : coins * count, at: now };
+  const j = { user: String(m.user || 'Viewer'), uid, pic: m.pic || '', coins, count, tier, base, combo, free, src: m.src || '', value: free ? 1 : (VALUE_FIX[coins] || coins) * count, at: now };
   avatarOf(j);
   queue.push(j); dirty = true;
   if (free) return;
@@ -719,21 +720,22 @@ function drawWheel() {
 }
 let wheelIcon = null;
 // Фонарь на цепи над сундуком: качается, свеча мерцает и подсвечивает кучу монет
-const LANTERN = { x: 752, y: 620, w: 132 };
+const LANTERN = { dx: 74, dy: -198, w: 132 };   // dx: правее левой стенки арки; dy: на сколько выше ленты начинается картинка фонаря
 let lanternKick = 0;
 function drawLantern() {
   const im = art.lantern; if (!im) return;
+  const G = beltGeo(), lx0 = G.ax + LANTERN.dx, ly0 = G.by + LANTERN.dy;   // висит над началом ленты и закрывает стык с аркой
   const top = L.rope + 18, sc = LANTERN.w / im.width, h = im.height * sc;
-  const ang = Math.sin(time * .9) * .035 + Math.sin(time * 5.5) * .05 * lanternKick, len = LANTERN.y - top;
+  const ang = Math.sin(time * .9) * .035 + Math.sin(time * 5.5) * .05 * lanternKick, len = ly0 - top;
   const fl = .75 + .15 * Math.sin(time * 11) + .1 * Math.sin(time * 23.3);
-  g.save(); g.translate(LANTERN.x, top); g.rotate(ang);
+  g.save(); g.translate(lx0, top); g.rotate(ang);
   ironChain(0, 0, 0, len + 6);
   g.drawImage(im, -LANTERN.w / 2, len, LANTERN.w, h);
   const cx = (240 - im.width / 2) * sc, cy = len + 705 * sc;
   lightSpot(cx, cy, 120, 'rgba(255,190,90,A)', .35 * fl);
   g.restore();
-  const lx = LANTERN.x + Math.sin(ang) * (len + 705 * sc), ly = top + Math.cos(ang) * (len + 705 * sc);
-  lightSpot(lx, ly + 140, 420, 'rgba(255,180,90,A)', .07 * fl);   // свет падает на сундук
+  const lx = lx0 + Math.sin(ang) * (len + 705 * sc), ly = top + Math.cos(ang) * (len + 705 * sc);
+  lightSpot(lx + 40, ly + 60, 360, 'rgba(255,180,90,A)', .08 * fl);   // тёплый свет на ленту и ножки
 }
 
 function drawSpinOverlay() {
@@ -866,8 +868,8 @@ function drawLegend() {
   else { rr(x0, y - h / 2, w, h, 24); g.fillStyle = 'rgba(20,13,16,.78)'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#7a5a2b'; g.stroke(); }
   TIERS.forEach((t, i) => {
     const cx = x0 + cell * (i + .5), wob = Math.sin(time * 2.4 + i) * 3;
-    const ic = giftIcons[i];
-    if (ic && ic.complete && ic.naturalWidth) g.drawImage(ic, cx - 74, y - 34, 68, 68);
+    const ic = art['gift_' + i] || giftIcons[i];
+    if (ic && ic.complete && ic.naturalWidth) g.drawImage(ic, cx - 78, y - 38, 76, 76);
     else txt(t.emoji, cx - 40, y + 2, 46, '#fff', 'center', 0);
     txt('›', cx + 2, y - 3, 34, '#d9b77a', 'center', 0);
     coinAt(blankCoin(i), cx + 44, y + wob, 31); glint(cx + 44, y + wob, 30, ((time * .3 + i * .2) % 1) / .3);
@@ -968,10 +970,10 @@ function beltGeo() {
   const fx = cx - (hole[0] + hole[2]) / 2 * sf, px0 = fx + hole[0] * sf, post = fx + 70 * sf;
   const p = bgToStage(64, 0), bx0 = p ? p.x : 80, f = bgToStage(0, 900);
   const bh = art.belt ? art.belt.height * BELT.scale : 30, by = plankTop - 18;
-  return { bx0, ax: bx0 - 46, px0, post, by, bh, endX: post - BELT.r - 6, cy: by + 5 - BELT.r, floor: f ? f.y : by + 260 };
+  return { bx0, ax: bx0, px0, post, by, bh, endX: post - BELT.r - 6, cy: by + 5 - BELT.r, floor: f ? f.y : by + 260 };
 }
 function updateBelt(dt) {
-  const G = beltGeo(), spawnX = G.ax - BELT.r * .55;   // монета появляется глубоко в арке, маленькой и тёмной, и выезжает на свет
+  const G = beltGeo(), spawnX = G.ax - BELT.r - 12;   // монета стоит за левой стенкой арки и выезжает из-за неё сразу, без плавного проявления
   // из арки выходит следующая монета, если на ленте есть место
   if (queue.length && belt.length < BELT.n) {
     sortQueue(); const j = queue.shift(), last = belt[belt.length - 1];
@@ -992,7 +994,7 @@ function drawBelt() {
   // ножки до пола, с тенью
   if (art.leg) {
     const top = by + bh * .55, h = clamp(G.floor - top, 120, 460), w = h * art.leg.width / art.leg.height;
-    [.5, .88].forEach((k, li) => {
+    [.23, .5, .88].forEach((k, li) => {
       const x = lerp(bx0, G.post, k);
       const sh = g.createRadialGradient(x, top + h, 4, x, top + h, w * .9); sh.addColorStop(0, 'rgba(0,0,0,.55)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
       g.save(); g.translate(0, top + h); g.scale(1, .22); g.translate(0, -(top + h)); g.fillStyle = sh; g.fillRect(x - w, top + h - w, w * 2, w * 2); g.restore();
@@ -1013,23 +1015,20 @@ function drawBelt() {
     const k = .16 + .05 * Math.sin(time * 7) + .03 * Math.sin(time * 17), gl = bc.createLinearGradient(ax, 0, ax + 300, 0);
     gl.addColorStop(0, `rgba(255,90,40,${k * 1.6})`); gl.addColorStop(1, 'rgba(255,90,40,0)');
     bc.globalCompositeOperation = 'source-atop'; bc.fillStyle = gl; bc.fillRect(ax, by - 4, 300, lh);
-    const fd = bc.createLinearGradient(ax, 0, ax + 230, 0); fd.addColorStop(0, 'rgba(0,0,0,0)'); fd.addColorStop(.25, 'rgba(0,0,0,.14)'); fd.addColorStop(.6, 'rgba(0,0,0,.55)'); fd.addColorStop(1, 'rgba(0,0,0,1)');
-    bc.globalCompositeOperation = 'destination-in'; bc.fillStyle = fd; bc.fillRect(ax, by - 4, lw, lh);
-    bc.fillStyle = '#000'; bc.fillRect(ax + 230, by - 4, lw, lh);
+    const fd = bc.createLinearGradient(ax, 0, ax + 70, 0); fd.addColorStop(0, 'rgba(10,4,2,.6)'); fd.addColorStop(1, 'rgba(10,4,2,0)');   // тень от стенки арки
+    bc.fillStyle = fd; bc.fillRect(ax, by - 4, 70, lh);
     g.drawImage(beltLayer, ax, by - 4, lw, lh);
   } else { g.fillStyle = '#231b20'; rr(bx0, by + 2, px0 + 4 - bx0, 20, 4); g.fill(); }
   // монеты на ленте: тень, заготовка, над ней аватарка того, чья монета
   g.save(); g.beginPath(); g.rect(ax, 0, W, H); g.clip();
   const now = performance.now();
   belt.forEach((j, i) => {
-    // глубина: в арке монета маленькая и тёмная, к прессу вырастает и светлеет
-    const dp = clamp((j.bx - ax) / 330), su = lerp(.5, 1, easeSine(dp)), al = clamp((j.bx - ax - 10) / 210) ** 1.6; if (al <= 0) return;
-    const r = BELT.r * su, y = G.cy + BELT.r - r - (beltV > 20 ? Math.abs(Math.sin(beltScroll * .09 + i)) * 1.6 : 0), x = j.bx, t = TIERS[j.tier];
-    g.globalAlpha = al * .5; g.fillStyle = '#000'; g.beginPath(); g.ellipse(x + 4, by + 6, r * .85, 6 * su, 0, 0, TAU); g.fill();
+    // монета выезжает из-за левой стенки арки: рисуется целиком, обрезается краем стенки (clip), никакой прозрачности
+    const al = 1, r = BELT.r, y = G.cy - (beltV > 20 ? Math.abs(Math.sin(beltScroll * .09 + i)) * 1.6 : 0), x = j.bx, t = TIERS[j.tier];
+    g.globalAlpha = al * .5; g.fillStyle = '#000'; g.beginPath(); g.ellipse(x + 4, by + 6, r * .85, 6, 0, 0, TAU); g.fill();
     g.globalAlpha = al; g.drawImage(blankCoin(j.tier), x - r, y - r, r * 2, r * 2);
-    if (dp < 1) { g.globalAlpha = al * (1 - dp) ** 1.3 * .6; g.fillStyle = '#1a0a06'; g.beginPath(); g.arc(x, y, r - 1, 0, TAU); g.fill(); g.globalAlpha = al; }
-    glint(x, y, r - 2, ((time * .35 + i * .3) % 1.6) / .5, .35 * dp);
-    const ay = y - r - 46 * su + Math.sin(time * 2.6 + i * 1.3) * 4, ps = easeBack(clamp((now - j.onBelt) / 400)) * lerp(.55, 1, dp);
+    glint(x, y, r - 2, ((time * .35 + i * .3) % 1.6) / .5, .35);
+    const ay = y - r - 46 + Math.sin(time * 2.6 + i * 1.3) * 4, ps = 1;
     g.save(); g.translate(x, ay); g.scale(ps, ps);
     g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.moveTo(-8, 26); g.lineTo(8, 26); g.lineTo(0, 40); g.fill();
     g.fillStyle = t.c[1]; g.beginPath(); g.moveTo(-9, 24); g.lineTo(9, 24); g.lineTo(0, 37); g.fill();
@@ -1344,7 +1343,7 @@ function drawIdle() {
   coinAt(blankCoin(0), L.cx + 110, y, 130, Math.cos(time * 1.4));
   txt('?', L.cx + 110, y + 4, 110, '#fff5df');
   g.globalAlpha = 1;
-  txt(t.emoji, L.cx - 170, y + b * 16, 142, '#fff', 'center', 0);
+  const gi = art.gift_0; if (gi) g.drawImage(gi, L.cx - 170 - 78, y + b * 16 - 78, 156, 156); else txt(t.emoji, L.cx - 170, y + b * 16, 142, '#fff', 'center', 0);
   txt('›', L.cx - 46, y - 8, 96, '#fff1a8', 'center', 0);
 }
 function draw() {
@@ -1400,6 +1399,7 @@ function onCatalog(list) {
   const wg = list.find(x => WHEEL.gifts.length ? WHEEL.gifts.includes(x.name) : x.coins === WHEEL.coins);
   if (wg) { wheelIcon = new Image(); wheelIcon.src = wg.img; }
   giftIcons = TIERS.map((t, i) => {
+    if (ASSETS.includes('gift_' + i)) return null;   // значки ступеней лежат в assets/gift_N.png
     const next = TIERS[i + 1] ? TIERS[i + 1].min : Infinity, inTier = list.filter(x => x.coins >= t.min && x.coins < next);
     const pick = inTier.find(x => x.name === t.name) || inTier.sort((a, b) => a.coins - b.coins)[0];
     if (!pick) return null;
@@ -1433,7 +1433,7 @@ function makePortrait(k) {
 }
 function botGift(ti) {
   const i = Math.floor(rand(0, NAMES.length)), t = ti ?? (Math.random() < .68 ? 0 : Math.random() < .62 ? 1 : Math.random() < .6 ? 2 : Math.random() < .7 ? 3 : 4);
-  const coins = [1, 5, 30, 100, 1000][t], name = NAMES[i] + (Math.random() < .5 ? '' : ' ' + Math.floor(rand(1, 99)));
+  const coins = [1, 5, 20, 30, 199][t], name = NAMES[i] + (Math.random() < .5 ? '' : ' ' + Math.floor(rand(1, 99)));
   if (i % 2 === 0 && !portraits[i]) portraits[i] = makePortrait(i);
   addGift({ user: name, uid: name, pic: portraits[i] || '', coins, count: t === 0 && Math.random() < .3 ? 10 : 1 });
 }
@@ -1443,7 +1443,7 @@ function panelGift(ti, count = 1, same = sticky) {
   lastTi = ti;
   const i = same ? 0 : Math.floor(rand(0, NAMES.length)), name = same ? NAMES[0] : NAMES[i] + ' ' + Math.floor(rand(1, 99));
   if (i % 2 === 0 && !portraits[i]) portraits[i] = makePortrait(i);
-  addGift({ user: name, uid: name, pic: portraits[i] || '', coins: [1, 5, 30, 100, 1000][ti], count });
+  addGift({ user: name, uid: name, pic: portraits[i] || '', coins: [1, 5, 20, 30, 199][ti], count });
 }
 function botTick() { if (bots) { botGift(); } botTimer = setTimeout(botTick, rand(500, 2400)); }
 if (Live.testMode) {
