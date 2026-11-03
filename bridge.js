@@ -112,8 +112,17 @@ function go() {
     console.log('подарок', userOf(d), name, coins, 'x', count);
     send({ type: 'gift', coins, count, name, user: userOf(d), uid: uidOf(d), pic: picOf(d) });
   });
-  let likeLog = 0;
-  C.on('like', d => { if (Date.now() - likeLog > 5000) { likeLog = Date.now(); console.log('лайки', userOf(d), '+' + (+d.likeCount || 1)); } send({ type: 'like', count: +d.likeCount || 1, user: userOf(d), uid: uidOf(d), pic: picOf(d) }); });
+  // Лайки: TikTok присылает пачки. Берём likeCount, а если в событии есть общий счётчик комнаты (totalLikeCount),
+  // то и его прирост с прошлого события: так серия из 20-30 тапов не превращается в «+1».
+  let lastTotal = null, likeEvents = 0;
+  C.on('like', d => {
+    const own = +d.likeCount || 1, tot = +(d.totalLikeCount ?? d.total_like_count ?? d.totalLikes ?? NaN);
+    let n = own;
+    if (Number.isFinite(tot)) { if (lastTotal !== null && tot > lastTotal) n = Math.max(own, Math.min(tot - lastTotal, 100)); lastTotal = tot; }
+    likeEvents++;
+    if (likeEvents <= 40 || likeEvents % 10 === 0) console.log('лайки', userOf(d), '+' + n, '(likeCount=' + d.likeCount + ', всего в комнате=' + (Number.isFinite(tot) ? tot : '?') + ')');
+    send({ type: 'like', count: n, user: userOf(d), uid: uidOf(d), pic: picOf(d) });
+  });
   let chatDump = 0;
   C.on('chat', d => {
     const text = textOf(d);
