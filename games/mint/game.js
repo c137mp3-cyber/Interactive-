@@ -37,7 +37,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 28;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 29;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -803,9 +803,12 @@ function drawSign() {
   const cw = im ? w * .418 : w * .34, ry = im ? h * .127 : 15;   // где дырки под кольца
   const sy = G.by - 402, len = sy - h / 2 - top, ang = Math.sin(time * .9) * .03 + Math.sin(time * 5.5) * .05 * lanternKick;
   signPulse = Math.max(0, signPulse - .02);
-  g.save(); g.translate(sx, top); g.rotate(ang);
-  ironChain(-cw, 0, -cw, len + ry); ironChain(cw, 0, cw, len + ry);
-  g.translate(0, len + h / 2);
+  // две цепи = параллелограмм: обе качаются вокруг точек подвеса, а табличка остаётся почти ровной и просто смещается
+  const cs = Math.cos(ang), sn = Math.sin(ang), D = len + ry, ccx = sx - sn * D, ccy = top + cs * D + (h / 2 - ry);
+  g.save(); g.translate(sx, top);
+  ironChain(-cw, 0, -cw - sn * D, cs * D); ironChain(cw, 0, cw - sn * D, cs * D);
+  g.restore();
+  g.save(); g.translate(ccx, ccy); g.rotate(ang * .2);
   if (im) g.drawImage(im, -w / 2, -h / 2, w, h); else g.drawImage(paperSign(), -w / 2, -h / 2, w, h);
   [-cw, cw].forEach(nx => {   // железные кольца, на которых висит бумага
     g.beginPath(); g.arc(nx, -h / 2 + ry, 8, 0, TAU); g.fillStyle = '#2b2623'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#8c7a66'; g.stroke();
