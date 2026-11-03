@@ -37,7 +37,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 29;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 30;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -801,18 +801,26 @@ function paperSign() {   // пергамент рисуется кодом од�
 function drawSign() {
   const G = beltGeo(), sx = G.ax + SIGN.dx, top = L.rope + 18, w = SIGN.w, im = art.sign_paper, h = im ? w * im.height / im.width : SIGN.h;
   const cw = im ? w * .418 : w * .34, ry = im ? h * .127 : 15;   // где дырки под кольца
-  const sy = G.by - 402, len = sy - h / 2 - top, ang = Math.sin(time * .9) * .03 + Math.sin(time * 5.5) * .05 * lanternKick;
+  const sy = G.by - 402, len = sy - h / 2 - top, ang = Math.sin(time * .9) * .02 + Math.sin(time * 5.5) * .04 * lanternKick;
   signPulse = Math.max(0, signPulse - .02);
-  // две цепи = параллелограмм: обе качаются вокруг точек подвеса, а табличка остаётся почти ровной и просто смещается
-  const cs = Math.cos(ang), sn = Math.sin(ang), D = len + ry, ccx = sx - sn * D, ccy = top + cs * D + (h / 2 - ry);
+  // сверху деревянная планка на двух цепях (всегда горизонтальная), бумага привязана к ней двумя верёвочками
+  const bw = cw + 26, rope = 18, ringY = sy - h / 2 + ry, barY = ringY - rope - 8, Db = barY - top;
+  const cs = Math.cos(ang), sn = Math.sin(ang), bcx = sx - sn * Db, bcy = top + cs * Db;
   g.save(); g.translate(sx, top);
-  ironChain(-cw, 0, -cw - sn * D, cs * D); ironChain(cw, 0, cw - sn * D, cs * D);
+  ironChain(-bw, 0, -bw - sn * Db, cs * Db); ironChain(bw, 0, bw - sn * Db, cs * Db);
   g.restore();
-  g.save(); g.translate(ccx, ccy); g.rotate(ang * .2);
+  g.save(); g.translate(bcx, bcy); g.rotate(ang * .12);
+  g.fillStyle = 'rgba(0,0,0,.35)'; rr(-bw - 8, -4, bw * 2 + 16, 18, 6); g.fill();
+  const wd = g.createLinearGradient(0, -8, 0, 8); wd.addColorStop(0, '#7a4e2a'); wd.addColorStop(.5, '#5a3820'); wd.addColorStop(1, '#3a2212');
+  rr(-bw - 10, -8, bw * 2 + 20, 16, 6); g.fillStyle = wd; g.fill(); g.lineWidth = 3; g.strokeStyle = '#1e1008'; g.stroke();
+  g.strokeStyle = 'rgba(255,220,160,.25)'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(-bw, -4); g.lineTo(bw, -4); g.stroke();
+  [-bw, bw].forEach(nx => { g.fillStyle = '#3b2f28'; g.fillRect(nx - 5, -8, 10, 16); g.fillStyle = '#c9a65a'; g.beginPath(); g.arc(nx, 0, 3.2, 0, TAU); g.fill(); });   // железные скобы с заклёпками
+  [-cw, cw].forEach(nx => { g.strokeStyle = '#6b4a2a'; g.lineWidth = 5; g.lineCap = 'round'; g.beginPath(); g.moveTo(nx, 6); g.lineTo(nx + sn * 3, 6 + rope + 2); g.stroke(); g.strokeStyle = '#a07a46'; g.lineWidth = 2; g.stroke(); });   // верёвочные петли
+  g.translate(0, rope + 8 + (h / 2 - ry) + 0);
   if (im) g.drawImage(im, -w / 2, -h / 2, w, h); else g.drawImage(paperSign(), -w / 2, -h / 2, w, h);
-  [-cw, cw].forEach(nx => {   // железные кольца, на которых висит бумага
-    g.beginPath(); g.arc(nx, -h / 2 + ry, 8, 0, TAU); g.fillStyle = '#2b2623'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#8c7a66'; g.stroke();
-    g.beginPath(); g.arc(nx, -h / 2 + ry, 3, 0, TAU); g.fillStyle = '#0d0907'; g.fill(); });
+  [-cw, cw].forEach(nx => {   // железные кольца на дырках бумаги
+    g.beginPath(); g.arc(nx, -h / 2 + ry, 7, 0, TAU); g.fillStyle = '#2b2623'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#8c7a66'; g.stroke();
+    g.beginPath(); g.arc(nx, -h / 2 + ry, 2.6, 0, TAU); g.fillStyle = '#0d0907'; g.fill(); });
   const pz = 1 + .06 * signPulse;
   g.save(); g.scale(pz, pz); g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
   g.font = `800 29px ${FONT}`; g.fillStyle = 'rgba(255,240,200,.55)'; g.fillText(SIGN.small, 0, -h * .25 + 1.5);   // вдавленный текст
