@@ -35,9 +35,9 @@ const curGoal = () => GOALS[Math.min(level, GOALS.length - 1)];
 const TEMPO = 1.6;   // во сколько раз медленнее идёт анимация при небольшой очереди (1 = как раньше)
 
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
-const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
+const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg', 'chest_dome', 'chest_lid', 'king_medal', 'king_crown', 'sign_paper', 'shelf_post', 'shelf_board', 'shelf_top', 'bag_1', 'bag_2', 'bag_3', 'bag_4', 'bag_5', 'bag_6', 'name_paper', 'empty_slot', 'counter_badge', 'counter_hot', 'plaque_gold', 'plaque_silver', 'plaque_bronze', 'gift_0', 'gift_1', 'gift_2', 'gift_3', 'gift_4', 'wheel', 'wheel_stand', 'wheel_pointer', 'lantern',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 36;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 37;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -255,8 +255,9 @@ function onChat(m) {
   lanternKick = Math.max(lanternKick, .5);   // табличка качается от любого сообщения
   const text = String(m.text || ''), uid = String(m.uid || m.user), now = performance.now();
   if (CHAT.king.test(text)) {   // «король»: медальон и корона вспыхивают
-    if (now - kingCallAt > CHAT.kingCool) { kingCallAt = now; kingPulse = 1; ring(W - 92, L.queueTop + 40, 150, '#ffd36b', .6, 8); if (owner) sfx('king'); }
+    if (now - kingCallAt > CHAT.kingCool) { kingCallAt = now; kingPulse = 1; const kb = owner && kazna.get(owner.uid); if (kb) { ring(kb.sx, kb.sy, 150, '#ffd36b', .6, 8); kFocus = { uid: kb.uid, t: KAZNA.focusT }; sfx('king'); } }
   }
+  kaznaColor(m, text);
   if (!CHAT.word.test(text)) return;
   signPulse = 1;
   if ((chatAt.has(uid) && now - chatAt.get(uid) < CHAT.cool) || !freeRoom()) return;
@@ -317,6 +318,7 @@ function land(j) {
   spots.push({ x: j.slot.x, y: j.slot.y, tier: j.tier }); if (spots.length > 40) spots.shift();
   sprites.push({ s: j.sprite, tier: j.tier }); if (sprites.length > 30) sprites.shift();
   landedExtra = Math.max(0, landedExtra - (j.flyW || 0)); commitValue(j.value, j.sprite); if (!j.free) lastLander = j;
+  kaznaAdd(j, j.value); const cw0 = chestWho.get(j.uid) || { n: 0, tier: 0 }; cw0.n += j.value; cw0.tier = Math.max(cw0.tier, j.tier); chestWho.set(j.uid, cw0);
   job = null;
 }
 function dropMedal(it) {
@@ -335,10 +337,10 @@ function addWall(j) {
 }
 function startBuild() {
   build = { t: 0, d: chain ? .9 : 1.6, next: 0 }; lidT = 0; sfx('build');
-  if (lastLander) { const b = (ownerWins.get(lastLander.uid) || 0) + 1; ownerWins.set(lastLander.uid, b); owner = { uid: lastLander.uid, user: lastLander.user, b, at: performance.now() + 1300 }; }
 }
 // Сундук переполнен: дрожит, светится и взрывается фонтаном монет
 function doBurst() {
+  kaznaBurst();
   value = Math.max(0, value - curGoal()); level++; barV = 0; landedExtra = 0;   // остаток целиком переходит в следующий сундук, ничего не теряется
   chain = value >= curGoal() ? chain + 1 : 0;
   lanternKick = 1; sfx('win', 4); flash = .55; flashColor = '#fff1a8'; chestPop = 0; chestKick = 0;
@@ -586,7 +588,7 @@ function update(dt) {
   for (let i = twinkles.length - 1; i >= 0; i--) { twinkles[i].t += dt; if (twinkles[i].t > twinkles[i].d) twinkles.splice(i, 1); }
   if (spots.length && Math.random() < dt * (1.2 + spots.length * .08)) { const p = spots[Math.floor(rand(0, spots.length))]; twinkles.push({ x: p.x + rand(-22, 22), y: p.y + rand(-22, 10), t: 0, d: rand(.5, .9), s: 9 + p.tier * 4, c: TIERS[p.tier].c[0] }); }
   const ct = job && (job.ph === 4 || job.ph === 5) ? [0, .12, .3, .5, .62][job.tier] : 0; cine = lerp(cine, ct, clamp(dt * 5));
-  lvlT = Math.max(0, lvlT - dt);
+  lvlT = Math.max(0, lvlT - dt); kaznaUpdate(dt);
   lanternKick = Math.max(0, lanternKick - .006); shake = 0; pressShake = Math.max(0, pressShake - dt * 60); if (chestPop >= 0) chestPop += dt; if (chestPop > 2) chestPop = -1; flash = Math.max(0, flash - dt * 1.7); chestKick = Math.max(0, chestKick - dt * 4);
   wall.forEach(w => { w.swing = Math.max(0, w.swing - dt * .55); });
   for (let i = wallFall.length - 1; i >= 0; i--) { const f = wallFall[i]; f.life -= dt; f.vy += 1300 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.a += f.va * dt; if (f.life <= 0 || f.y > H + 200) wallFall.splice(i, 1); }
@@ -699,7 +701,7 @@ function updateSpin(dt) {
     sp.done = true; sp.show = 0.001; const amt = WHEEL.prizes[sp.k], j = { user: sp.who.user, uid: sp.who.uid, pic: sp.who.pic };
     const a = avatarOf(j), ti = tierOf(amt), sprite = makeCoin(a, ti, false);
     sfx('ta', Math.min(4, ti + 1)); burst(WHEEL.x, WHEEL.y, TIERS[ti], 40, 600); ring(WHEEL.x, WHEEL.y, 260, TIERS[ti].c[0], .6, 12);
-    sp.pour = { amt, sprite, at: sp.t + 1.2 }; lastLander = { uid: j.uid, user: j.user };
+    sp.pour = { amt, sprite, at: sp.t + 1.2 }; lastLander = { uid: j.uid, user: j.user }; setTimeout(() => kaznaAdd(j, amt), 2200);
   }
   if (sp.done) sp.show += dt;
   if (sp.pour && sp.t >= sp.pour.at) { const p = sp.pour; sp.pour = null; const nn = Math.min(100, p.amt); pourCoins(nn, () => p.sprite, WHEEL.x, WHEEL.y - 40, 0, .7, { commit: p.amt / nn }); if (p.amt > 6) sfx('pour'); sp.end = sp.t + 1.4; }
@@ -1301,6 +1303,199 @@ function ironChain(x0, y0, x1, y1) {
 let kingPulse = 0;
 const MED = { s: .4, hx: 221, hy: 212, hr: 127, by: 548 };   // king_medal.png (441×722): центр отверстия, его радиус и центр ленты под имя; s — масштаб на сцене
 const plaqueY = new Map();
+// ===== Казна: личные мешки зрителей на стеллаже-лифте справа =====
+// Каждая монета, упавшая в сундук, ещё и копится в мешке своего хозяина. Мешки растут по уровням, богатые выше.
+// Стеллаж едет вверх-вниз: в тишине показывает всех по очереди, на событие подъезжает к мешку того, кто его сделал.
+const KAZNA = { lv: [1, 10, 50, 200, 500, 1000], x0: 805, top: 330, row: [1, 2, 3, 3, 4], size: [0, 165, 128, 128, 100], idle: 26, focusT: 2.6, maxW: 470 };
+const COLORS = [[/красн|\bred\b/i, '#d8402f'], [/оранж|orange/i, '#ee8a2a'], [/ж[её]лт|yellow/i, '#e9c53a'], [/золот|gold/i, '#e0a920'], [/зел[её]н|green/i, '#43a84a'],
+  [/голуб|cyan/i, '#4fb6e6'], [/син|blue/i, '#3b63d6'], [/фиол|purple|violet/i, '#8a4fd0'], [/розов|pink/i, '#ea6aa8'], [/ч[её]рн|black/i, '#3a3236'], [/бел|white/i, '#f2efe8']];
+const DEFCOL = ['#c9a27a', '#b9b0a4', '#a3b8a2', '#b9a3c4', '#c7a3a0', '#a3b4c6', '#c4b48a'];   // мягкие оттенки, пока зритель не выбрал свой
+const hashStr = s => { let h = 7; for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)) % 1000003; return h; };
+const kazna = new Map(), colorPref = new Map(), chestWho = new Map();
+let kList = [], kScroll = 0, kFocus = null, kIdleDir = 1, kIdleHold = 4, kParade = [], kParadeT = 0, kFx = [], kGeoC = null, kLay = null;
+const lvOf = c => { let l = 0; for (let i = 0; i < KAZNA.lv.length; i++) if (c >= KAZNA.lv[i]) l = i; return l; };
+function kaznaAdd(j, n, focus = true) {
+  if (!n || !j || !j.uid) return;
+  let b = kazna.get(j.uid);
+  if (!b) { b = { uid: j.uid, user: j.user, coins: 0, col: colorPref.get(j.uid) || DEFCOL[hashStr(j.uid) % DEFCOL.length], at: performance.now(), hop: 0, px: null, py: null, sx: 0, sy: 0, vis: false }; kazna.set(j.uid, b); }
+  b.user = j.user || b.user;
+  const lv0 = b.coins ? lvOf(b.coins) : -1; b.coins += n; b.hop = 1;
+  kFx.push({ uid: b.uid, t: 0, txt: '+' + n });
+  const lv = lvOf(b.coins);
+  if (lv0 >= 0 && lv > lv0) { kFx.push({ uid: b.uid, t: 0, lvl: lv }); sfx('ta', Math.min(4, lv)); }
+  kSort();
+  if (focus) kFocus = { uid: b.uid, t: KAZNA.focusT };
+}
+function kSort() {
+  kList = [...kazna.values()].sort((a, b) => b.coins - a.coins || a.at - b.at);
+  const top = kList[0];
+  if (top && (!owner || owner.uid !== top.uid)) {
+    owner = { uid: top.uid, user: top.user, b: 1, at: performance.now() }; kingPulse = 1;
+    if (kList.length > 1) { sfx('king'); kFx.push({ uid: top.uid, t: 0, king: 1 }); }
+  }
+}
+function kaznaColor(m, text) {
+  const hit = COLORS.find(([re]) => re.test(text)); if (!hit) return false;
+  const uid = String(m.uid || m.user); colorPref.set(uid, hit[1]);
+  const b = kazna.get(uid);
+  if (b && b.col !== hit[1]) { b.col = hit[1]; b.hop = 1; kFx.push({ uid, t: 0, paint: hit[1] }); kFocus = { uid, t: KAZNA.focusT }; }
+  return true;
+}
+// Мешок перекрашивается: светлая некрашеная ткань берёт цвет, верёвка, монеты и дерево остаются своими
+const bagCache = new Map();
+function bagImg(lv, col) {
+  const k = lv + col; if (bagCache.has(k)) return bagCache.get(k);
+  const im = art['bag_' + (lv + 1)]; if (!im) return null;
+  const c = document.createElement('canvas'); c.width = Math.min(256, im.width); c.height = Math.round(c.width * im.height / im.width);
+  const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, c.width, c.height);
+  const d = x.getImageData(0, 0, c.width, c.height), p = d.data, [cr, cg, cb] = hexRgb(col);
+  for (let i = 0; i < p.length; i += 4) {
+    if (!p[i + 3]) continue;
+    const r = p[i], g2 = p[i + 1], b = p[i + 2], mx = Math.max(r, g2, b), mn = Math.min(r, g2, b), sat = (mx - mn) / (mx + 1), lum = (r * .3 + g2 * .59 + b * .11) / 255;
+    const kk = clamp((.26 - sat) / .1) * clamp((lum - .2) / .15); if (kk <= 0) continue;
+    const f = .25 + lum * 1.05;
+    p[i] = r + (Math.min(255, cr * f) - r) * kk; p[i + 1] = g2 + (Math.min(255, cg * f) - g2) * kk; p[i + 2] = b + (Math.min(255, cb * f) - b) * kk;
+  }
+  x.putImageData(d, 0, 0); bagCache.set(k, c); return c;
+}
+function kGeo() {
+  const right = Math.min((SCW - ox) / scale - 14, KAZNA.x0 + KAZNA.maxW), x1 = Math.max(KAZNA.x0 + 250, right), x0 = Math.max(KAZNA.x0, x1 - KAZNA.maxW);
+  const top = KAZNA.top, bot = Math.max(top + 420, Math.min(1300, WHEEL.y - WHEEL.r - 90));
+  return { x0, x1, w: x1 - x0, top, bot, h: bot - top, post: 30 };
+}
+function kLayout(G) {
+  const slots = [], inner = G.w - G.post * 2, kw = Math.min(inner * .72, 270), kh = kw * 520 / 392, pad = 34;
+  slots.push({ king: true, x: G.x0 + G.w / 2, rowTop: pad, rowH: kh + 80, kw, kh, s: kw * .62, cw: kw });
+  let y = pad + kh + 80 + 10, r = 1;
+  while (slots.length < kList.length + 2 || y < G.h + 40) {
+    const n = KAZNA.row[Math.min(r, KAZNA.row.length - 1)], cw = inner / n, s = Math.min(cw * .98, KAZNA.size[Math.min(r, KAZNA.size.length - 1)]);
+    const tw = Math.min(cw * .94, 165), th = tw * 346 / 513, rh = s + 16 + th * .8 + 6;
+    for (let i = 0; i < n; i++) slots.push({ x: G.x0 + G.post + cw * (i + .5), rowTop: y, rowH: rh, s, cw, tw, th, board: y + s + 4 });
+    y += rh + 8; r++;
+    if (slots.length > 400) break;
+  }
+  return { slots, H: y };
+}
+function kaznaUpdate(dt) {
+  kingPulse = Math.max(0, kingPulse - dt);
+  for (const b of kazna.values()) b.hop = Math.max(0, b.hop - dt * 1.6);
+  kFx = kFx.filter(f => (f.t += dt) < (f.lvl != null || f.king ? 2.2 : 1.4));
+  const G = kGeoC = kGeo(), Lr = kLay = kLayout(G), maxS = Math.max(0, Lr.H - G.h);
+  if (kParade.length && (kParadeT -= dt) <= 0) {   // раздача после взрыва: по очереди к каждому участнику сундука
+    const p = kParade.shift(); kParadeT = .85; kFocus = { uid: p.uid, t: 1 };
+    for (let i = 0; i < Math.min(8, 2 + p.n); i++) kFx.push({ uid: p.uid, t: -i * .06, fly: 1, x0: L.cx + rand(-120, 120), y0: L.chestTop + rand(0, 60), tier: p.tier });
+  }
+  if (kFocus && kFocus.t > 0) {
+    kFocus.t -= dt;
+    const i = kList.findIndex(b => b.uid === kFocus.uid), sl = Lr.slots[i];
+    if (sl) kScroll = lerp(kScroll, clamp(sl.rowTop + sl.rowH / 2 - G.h / 2, 0, maxS), clamp(dt * 5));
+    kIdleHold = 3; kIdleDir = 1;
+  } else if (kIdleHold > 0) kIdleHold -= dt;
+  else {
+    kScroll += kIdleDir * KAZNA.idle * (kIdleDir < 0 ? 3 : 1) * dt;
+    if (kScroll >= maxS) { kScroll = maxS; kIdleDir = -1; kIdleHold = 2.5; }
+    if (kScroll <= 0) { kScroll = 0; kIdleDir = 1; kIdleHold = 6; }
+  }
+  kScroll = clamp(kScroll, 0, maxS);
+}
+function kaznaBurst() {   // кто положил монеты в этот сундук — тем раздача по очереди
+  kParade = [...chestWho.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 10).map(([uid, v]) => ({ uid, n: v.n, tier: v.tier }));
+  kParadeT = .9; chestWho.clear();
+}
+function drawBag(b, x, y, s, isKing) {   // x — центр, y — опора (низ мешка)
+  const lv = lvOf(b.coins), im = bagImg(lv, b.col), within = lv < 5 ? clamp((b.coins - KAZNA.lv[lv]) / (KAZNA.lv[lv + 1] - KAZNA.lv[lv])) : 1;
+  const k = (.72 + .3 * lv / 5) * (1 + .05 * within), hop = Math.sin(b.hop * Math.PI) * 14 * b.hop, sq = 1 + .1 * Math.sin(b.hop * Math.PI * 2) * b.hop;
+  const h = s * k, w = im ? h * im.width / im.height : h * .9;
+  g.save(); g.translate(x, y - hop); g.scale(sq, (lv === 0 ? .86 : 1) / sq);
+  g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(0, 0, w * .42, 6, 0, 0, TAU); g.fill();
+  if (im) g.drawImage(im, -w / 2, -h, w, h);
+  else { g.fillStyle = b.col; g.beginPath(); g.ellipse(0, -h * .42, w * .45, h * .42, 0, 0, TAU); g.fill(); g.lineWidth = 3; g.strokeStyle = '#2a170c'; g.stroke(); }
+  g.restore();
+  if (isKing) drawCrown(x, y - h - hop - 4, Math.max(40, w * .5));
+  return h;
+}
+function drawTag(x, y, tw, th, name, coins, big) {
+  const im = art.name_paper;
+  g.save(); g.translate(x, y); g.rotate(Math.sin(time * 1.3 + x * .05) * .025);
+  if (im) g.drawImage(im, -tw / 2, 0, tw, th); else { g.fillStyle = '#e6cb8a'; rr(-tw / 2, 0, tw, th, 6); g.fill(); }
+  g.fillStyle = '#2b2623'; g.beginPath(); g.arc(0, th * .14, Math.max(2.5, tw * .025), 0, TAU); g.fill();   // гвоздик
+  const fs = Math.max(13, Math.min(big ? 26 : 22, tw / 6.2));
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `800 ${fs}px ${FONT}`; g.fillStyle = '#3d2410';
+  g.fillText(shortName(name, big ? 11 : 9), 0, th * .47);
+  g.font = `800 ${fs * .82}px ${FONT}`; g.fillStyle = '#6a3a14'; g.fillText(coins + ' 🪙', 0, th * .74);
+  g.restore();
+}
+function drawKazna() {
+  const G = kGeoC || kGeo(), Lr = kLay || kLayout(G), oy0 = G.top - kScroll, now = performance.now();
+  // ниша стеллажа: тёмная задняя стенка
+  g.save(); rr(G.x0 - 6, G.top - 14, G.w + 12, G.h + 28, 16); g.fillStyle = 'rgba(22,12,9,.78)'; g.fill(); g.restore();
+  g.save(); g.beginPath(); g.rect(G.x0 - 40, G.top - 14, G.w + 80, G.h + 28); g.clip();
+  // стойки едут вместе со стеллажом
+  const post = art.shelf_post;
+  if (post) { const ph = G.post * post.height / post.width; for (let y = G.top - 14 - ((kScroll % ph) + ph) % ph; y < G.bot + 14; y += ph - 1) { g.drawImage(post, G.x0 - 4, y, G.post + 4, ph); g.save(); g.translate(G.x1 + 4, y); g.scale(-1, 1); g.drawImage(post, 0, 0, G.post + 4, ph); g.restore(); } }
+  else { g.fillStyle = '#4a2d18'; g.fillRect(G.x0 - 4, G.top - 14, G.post, G.h + 28); g.fillRect(G.x1 - G.post + 4, G.top - 14, G.post, G.h + 28); }
+  const board = (y) => { const bi = art.shelf_board, x0 = G.x0 + G.post - 6, w = G.w - G.post * 2 + 12; if (bi) g.drawImage(bi, x0, y - 6, w, 26); else { g.fillStyle = '#6e4425'; g.fillRect(x0, y - 4, w, 18); } };
+  let lastBoard = -1;
+  Lr.slots.forEach((sl, i) => {
+    const sy0 = oy0 + sl.rowTop;
+    if (sy0 > G.bot + 40 || sy0 + sl.rowH < G.top - 80) return;
+    const b = kList[i];
+    if (sl.king) {
+      const kx = sl.x - sl.kw / 2, ky = sy0;
+      if (b && owner && now >= owner.at) { rays(sl.x, ky + sl.kh * .6, 40, 150 + 40 * kingPulse, 12, ['#fff1a8', '#ffb12b'], time * .3, .16 + .25 * kingPulse); }
+      if (art.shelf_top) g.drawImage(art.shelf_top, kx, ky, sl.kw, sl.kh); else { rr(kx, ky, sl.kw, sl.kh, 20); g.fillStyle = '#4a2d18'; g.fill(); }
+      const floor = ky + sl.kh * .905;
+      if (b) {
+        if (b.px == null) { b.px = sl.x; b.py = floor - G.top + kScroll; }
+        drawBag(b, sl.x, floor, sl.s, true); b.sx = sl.x; b.sy = floor - sl.s * .4; b.vis = true;
+        drawTag(sl.x, ky + sl.kh - 6, sl.kw * .74, sl.kw * .74 * 346 / 513, b.user, b.coins, true);
+      } else {
+        const ei = art.empty_slot; if (ei) { g.globalAlpha = .8; const ew = sl.kw * .38; g.drawImage(ei, sl.x - ew / 2, ky + sl.kh * .38, ew, ew * ei.height / ei.width); g.globalAlpha = 1; }
+        txt('👑 свободно', sl.x, ky + sl.kh + 30, 22, '#ffe6a8', 'center', 5);
+      }
+      return;
+    }
+    const by = oy0 + sl.board;
+    if (by !== lastBoard) { board(by); lastBoard = by; }
+    if (b) {
+      // плавный переезд при обгоне: позиция в координатах стеллажа догоняет свой слот
+      const tx = sl.x, ty = sl.board; if (b.px == null || b.pyK == null) { b.px = tx; b.pyK = ty; }
+      b.px = lerp(b.px, tx, .12); b.pyK = lerp(b.pyK, ty, .12);
+      const x = b.px, y = oy0 + b.pyK;
+      if (kFocus && kFocus.uid === b.uid && kFocus.t > 0) lightSpot(x, y - sl.s * .4, sl.s * 1.3, 'rgba(255,220,150,A)', .35);
+      drawBag(b, x, y, sl.s, false); b.sx = x; b.sy = y - sl.s * .45; b.vis = true;
+      drawTag(x, y + 8, sl.tw, sl.th, b.user, b.coins, false);
+    } else {
+      const ei = art.empty_slot, ew = sl.s * .62;
+      g.globalAlpha = .7;
+      if (ei) g.drawImage(ei, sl.x - ew / 2, by - ew * ei.height / ei.width + ew * .55, ew, ew * ei.height / ei.width);
+      g.globalAlpha = 1;
+      txt('свободно', sl.x, by + 20, Math.min(17, Math.max(12, sl.cw * .13)), 'rgba(255,236,200,.7)', 'center', 4);
+    }
+  });
+  g.restore();
+  // затемнение к краям окна: стеллаж уходит в темноту
+  const fade = (y0, y1, a0, a1) => { const gr = g.createLinearGradient(0, y0, 0, y1); gr.addColorStop(0, `rgba(14,8,6,${a0})`); gr.addColorStop(1, `rgba(14,8,6,${a1})`); g.fillStyle = gr; g.fillRect(G.x0 - 8, y0, G.w + 16, y1 - y0); };
+  fade(G.top - 14, G.top + 40, .9, 0); fade(G.bot - 40, G.bot + 14, 0, .9);
+  // эффекты поверх: +N, новый уровень, король, краска, монеты раздачи
+  for (const f of kFx) {
+    const b = kazna.get(f.uid); if (!b || f.t < 0) continue;
+    const inView = b.sy > G.top - 20 && b.sy < G.bot + 20;
+    if (f.fly) {
+      const u = clamp(f.t / .7), e = 1 - (1 - u) ** 2, x = lerp(f.x0, b.sx, e), y = lerp(f.y0, b.sy, e) - Math.sin(u * Math.PI) * 160;
+      if (u < 1) coinAt(blankCoin(f.tier || 0), x, y, 14, Math.cos(f.t * 14)); else if (!f.hit) { f.hit = 1; b.hop = 1; sfx('clink', 0); }
+      continue;
+    }
+    if (!inView) continue;
+    const a = 1 - clamp((f.t - .8) / .6);
+    if (f.txt) txt(f.txt, b.sx + 24, b.sy - 30 - f.t * 50, 30, '#fff1a8', 'center', 5);
+    if (f.lvl != null) { if (f.t < .05) ring(b.sx, b.sy, 140, '#ffd36b', .6, 10); g.save(); g.globalAlpha = 1 - clamp((f.t - 1.6) / .6); txt('НОВЫЙ УРОВЕНЬ!', b.sx, b.sy - 70 - f.t * 12, 24, '#ffd36b', 'center', 6); g.restore(); }
+    if (f.king) { g.save(); g.globalAlpha = 1 - clamp((f.t - 1.6) / .6); txt('НОВЫЙ КОРОЛЬ!', b.sx, b.sy - 110, 28, '#ffd36b', 'center', 6); g.restore(); }
+    if (f.paint) { g.save(); g.globalAlpha = .6 * (1 - clamp(f.t / 1)); for (let q = 0; q < 8; q++) { const an = q / 8 * TAU; g.fillStyle = f.paint; g.beginPath(); g.arc(b.sx + Math.cos(an) * f.t * 70, b.sy + Math.sin(an) * f.t * 70, Math.max(.1, 9 * (1 - f.t)), 0, TAU); g.fill(); } g.restore(); }
+    void a;
+  }
+}
+
 function drawTop() {
   const cx = W - 92, ty = L.queueTop + 40, now = performance.now();
   // Трон-медальон короля сундука: чья монета взорвала сундук последней
@@ -1596,7 +1791,7 @@ function draw() {
   drawDust(); drawLegend(); drawWall(); drawPress(); drawSign(); drawStrikeLight(); drawLevelRays(); drawChestShadow();
   drawChest();   // сияния над закрытым сундуком нет: крышка закрыта, свет только при взрыве
   drawWheel();
-  drawTwinkles(); drawQueue(); drawTop();
+  drawTwinkles(); drawQueue(); drawKazna();
   drawSpinOverlay();
   if (cine > .01) { g.fillStyle = `rgba(6,3,9,${cine})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120); }
   for (const f of flyers) { if (f.t < 0) continue; const u = clamp(f.t / f.d); g.save(); g.translate(lerp(f.x, f.tx, u), lerp(f.y, f.ty, u * u) - Math.sin(u * Math.PI) * 120); g.rotate(lerp(f.a + 8, f.slot ? f.slot.rot : 0, u * u)); g.scale(1, lerp(1, f.slot ? f.slot.sq : 1, u * u)); g.drawImage(f.sprite, -f.r, -f.r, f.r * 2, f.r * 2); g.restore(); }
@@ -1705,7 +1900,7 @@ if (Live.testMode) {
   botTick();
 }
 
-window.__mint = { onChat, CHAT, setValue: v => { value = v; }, coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, lid: () => ({ b: !!build, t: lidT, fly: lidFly }), spin: () => spin && { t: spin.t, done: spin.done, k: spin.k }, wheel: m => { addGift(m); queueSpin(m); }, sounds: () => Object.keys(sbuf), music: () => music && { src: music.src, paused: music.paused, t: music.currentTime, vol: music.volume }, stat: () => ({ fountain: tiny.filter(p => p.spin && p.y < H + 60).length, lidFly, chestPop, slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
+window.__mint = { kazna: () => kList.map(b => ({ user: b.user, coins: b.coins, col: b.col })), kaznaAdd: (u, n) => kaznaAdd({ user: u, uid: u }, n), onChat, CHAT, setValue: v => { value = v; }, coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, lid: () => ({ b: !!build, t: lidT, fly: lidFly }), spin: () => spin && { t: spin.t, done: spin.done, k: spin.k }, wheel: m => { addGift(m); queueSpin(m); }, sounds: () => Object.keys(sbuf), music: () => music && { src: music.src, paused: music.paused, t: music.currentTime, vol: music.volume }, stat: () => ({ fountain: tiny.filter(p => p.spin && p.y < H + 60).length, lidFly, chestPop, slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
 resize();
 requestAnimationFrame(loop);
 })();
