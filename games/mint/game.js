@@ -31,7 +31,7 @@ const TEMPO = 1.6;   // во сколько раз медленнее идёт �
 // Необязательная графика: файл появился в assets -> заглушка заменяется сама
 const ASSETS = window.MINT_NO_ASSETS ? [] : ['bg', 'press_frame', 'press_head', 'anvil', 'chest_back', 'chest_front', 'legend', 'wall', 'belt', 'rope', 'leg',
   ...TIERS.map(t => 'coin_' + t.id)];
-const BUILD = 13;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
+const BUILD = 14;   // увеличивайте при каждом обновлении: сбрасывает кэш картинок и скрипта
 const art = {};
 ASSETS.forEach(n => { const i = new Image(); i.onload = () => { art[n] = i; if (n.startsWith('chest')) { layoutChest(); if (!total) initMound(); } if (n.startsWith('coin_')) blanks.fill(null); }; i.src = 'assets/' + n + '.png?v=' + BUILD; });
 
@@ -63,7 +63,7 @@ function layoutChest() {
   if (b && f) {
     const cs = CHEST_W / b.width, h = b.height * cs, y = 1388 - h;
     L.art = { cs, x: L.cx - CHEST_W / 2, y, w: CHEST_W, h, fy: y + (b.height - f.height) * cs, fh: f.height * cs };
-    L.rimY = L.art.fy; L.goalY = y - 36; L.mBase = L.rimY + 34; L.slotY = L.rimY - 44;
+    L.rimY = L.art.fy; L.goalY = y - 36; L.mBase = L.rimY + 60; L.slotY = L.rimY - 44;
     L.capH = (L.rimY - y) * .95; L.slotHW = 170; L.pileY = L.rimY - 110;
   } else {
     L.art = null; L.goalY = L.chestTop - 132; L.mBase = L.chestBot; L.slotY = L.chestBot - 118;
@@ -187,7 +187,7 @@ function blankCoin(ti) {
 const queue = []; let dirty = false, job = null;
 const wall = [], parts = [], flyers = [], tiny = [], rings = [], spots = [], twinkles = [];
 const donors = new Map(); let topDonors = [];
-let build = null, burstHold = 0, pileLevel = 0, lvlBadge = 0, cine = 0, lvlT = 0, hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
+let build = null, burstHold = 0, lvlBadge = 0, cine = 0, lvlT = 0, hitstop = 0, anvilKick = 0, embers = [], emberAcc = 0, shake = 0, flash = 0, flashColor = '#fff', pressY = 0, chestKick = 0, level = 0, value = 0, total = 0, connected = !Live.local, time = 0, sprites = [];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const combos = new Map(), likeAcc = new Map(), followed = new Set(), ownerWins = new Map();
@@ -228,7 +228,7 @@ function sortQueue() { const now = performance.now(); queue.sort((a, b) => score
 function startNext() {
   if (!belt.length || build || burstHold > 0 || value >= curGoal()) return;
   const G = beltGeo(); if (belt[0].bx < G.endX - 2) return;   // монета ещё едет к упору
-  const j = belt.shift(); j.x0 = j.bx;
+  const j = belt.shift(); j.x0 = j.bx; j.king = !!(owner && owner.uid === j.uid);
   j.avatar = avatarOf(j); j.sprite = makeCoin(j.avatar, j.tier, j.free); j.v = j.avatar.v;
   j.ph = 0; j.t = 0; j.dur = [.42, .15, .1, .22, .3 + j.tier * .08, .6 + j.tier * .45, .42];
   const q = queue.length + belt.length;
@@ -243,7 +243,11 @@ function nextPhase() {
   if (j.ph === 2) strike(j);
   if (j.ph === 5) heroStart(j);
   if (j.ph === 5) { sfx('ta', j.tier); if (j.tier >= 2) burst(L.cx, L.heroY, TIERS[j.tier], TIERS[j.tier].burst, 700); if (j.tier >= 3) { flash = j.tier === 4 ? .5 : .25; flashColor = TIERS[j.tier].c[1]; } }
-  if (j.ph === 6) { const lv = Math.min(1, (value + j.value) / curGoal()); pourTo(lv, j.tier, L.cx, L.heroY, Math.min(j.count - 1, 15)); j.slot = moundSlot(lv); }
+  if (j.ph === 6) {   // в сундук падает столько монет, сколько стоит подарок, и на каждой лицо дарителя
+    const n = Math.min(80, Math.max(1, j.value)), sp = j.sprite;
+    const S = n > 1 ? pourCoins(n - 1, () => sp, L.cx, L.heroY, .08) : 0; if (n > 6) sfx('pour');
+    j.slot = takeSlot(); j.dur[6] = .42 + S * j.speed + .1;
+  }
   if (j.ph >= j.dur.length) land(j);
 }
 function strike(j) {
@@ -271,15 +275,6 @@ function addWall(j) {
   wall.sort((a, b) => b.value - a.value || b.at - a.at);
   wall.length = Math.min(wall.length, 7);
 }
-// Мелкие монеты сыплются в сундук, чтобы высота кучи совпадала с полосой прогресса
-function pourTo(lv, maxTier, fx, fy, extra = 0) {
-  const n = Math.min(40, Math.max(extra, Math.round((lv - pileLevel) * 45)));
-  for (let i = 0; i < n; i++) {
-    const tl = i < extra ? maxTier : Math.floor(rand(0, maxTier + 1)), slot = moundSlot(lerp(pileLevel, lv, (i + 1) / (n + 1)));
-    flyers.push({ sprite: blankCoin(tl), x: fx + rand(-50, 50), y: fy, t: -i * (.3 / Math.max(n, 1)), d: rand(.26, .4), tx: slot.x, ty: slot.y, slot, a: rand(0, TAU), r: 24 });
-  }
-  pileLevel = Math.max(pileLevel, lv);
-}
 function startBuild() {
   build = { t: 0, d: 1.25, next: 0 }; sfx('build');
   if (lastLander) { const b = (ownerWins.get(lastLander.uid) || 0) + 1; ownerWins.set(lastLander.uid, b); owner = { uid: lastLander.uid, user: lastLander.user, b, at: performance.now() + 1300 }; }
@@ -297,10 +292,11 @@ function doBurst() {
   ring(L.cx, L.pileY, 760, '#fff1a8', .8, 20); ring(L.cx, L.pileY, 520, '#ffb12b', .65, 14, -.12); ring(L.cx, L.pileY, 300, '#ffffff', .4, 10);
   burst(L.cx, L.pileY, TIERS[4], 100, 1300);
   lvlT = 1.6; lvlBadge = 1.9; spots.length = 0; burstHold = 1.1;
-  initMound(); pileLevel = 0;
+  initMound();
 }
 function heroStart(j) {
   const t = TIERS[j.tier], r = heroR(j);
+  if (j.king) { sfx('king'); kingPulse = 1; flash = Math.max(flash, .3); flashColor = '#ffd36b'; ring(L.cx, L.heroY, r * 2.6, '#ffd36b', .8, 16); }
   if (j.tier >= 2) ring(L.cx, L.heroY, r * 2.1, t.c[0], .6, 14);
   if (j.tier >= 3) { ring(L.cx, L.heroY, r * 2.8, t.c[1], .8, 10, -.18);
     for (let i = 0; i < (j.tier === 4 ? 42 : 24); i++) tiny.push({ sprite: blankCoin(j.tier), x: rand(0, W), y: rand(-420, -40), vx: rand(-60, 60), vy: rand(80, 380), r: rand(16, 30), a: rand(0, TAU), va: rand(-6, 6), life: 3.2 }); }
@@ -311,27 +307,75 @@ function burst(x, y, t, n, sp) {
   for (let i = 0; i < n; i++) { const a = rand(0, TAU), s = rand(.25, 1) * sp; parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 170, life: rand(.4, .95), max: .95, size: rand(3, 9), c: t.c[i % 2] }); }
 }
 
-// Куча в сундуке запекается в отдельный холст: тысячи монет не тормозят экран
-let mound, mx, heights, MW = 600, MH = 420;
+// Куча в сундуке запекается в отдельный холст: тысячи монет не тормозят экран.
+// Монеты лежат слоями на дне сундука: сначала покрывают дно, потом слои растут горкой.
+// Одна монета = одна единица прогресса, поэтому куча всегда показывает, сколько собрано.
+let mound, mx, MW = 640, MH = 520, slots = [], pileN = 0;
+const PILE = { r: 38, layer: 38, extra: 26 };   // радиус монеты в куче, высота слоя, сколько ещё влезает горкой сверху
 function initMound() {
   mound = document.createElement('canvas'); mound.width = MW; mound.height = MH; mx = mound.getContext('2d');
-  heights = new Array(24).fill(0);
+  pileN = 0; buildSlots();
 }
-function moundSlot(level = pileLevel) {
-  const c = Math.floor(rand(1, 23)), edge = ((c - 11.5) / 11.5) ** 2;
-  const h = clamp(level) * L.capH * rand(.84, 1) * (1 - .3 * edge);   // горка: в середине выше
-  return { c, x: L.cx + ((c + .5) / 24 - .5) * 2 * L.slotHW + rand(-6, 6), y: L.slotY - h, h };
+function buildSlots() {
+  slots = [];
+  // дно сундука в координатах картинки chest_back.png: задний край y=150 (x 135..560), передний под кромкой y=238 (x 50..640)
+  const A = L.art, cs = A ? A.cs : 1, X = ix => A ? A.x + ix * cs : L.cx - 345 + ix, Y = iy => A ? A.y + iy * cs : L.chestTop + iy;
+  const need = curGoal() + PILE.extra; let k = 0, seed = 7;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  while (slots.length < need && k < 14) {
+    const shrink = clamp((k - 1) * .2, 0, .8), lay = [];      // верхние слои уже: получается горка
+    for (let iy = 152; iy <= 236; iy += 27) {
+      const f = (iy - 150) / 88, x0 = lerp(135, 50, f) + 30, x1 = lerp(560, 640, f) - 30, mid = (x0 + x1) / 2, half = (x1 - x0) / 2 * (1 - shrink);
+      const dy = lerp(.4, 1, 1 - shrink), yy = lerp(194, iy, dy);
+      const row = Math.max(1, Math.round(half * 2 / 64)), st = (iy / 27) % 2 ? .5 : 0;
+      for (let c = 0; c < row + (st ? 0 : 1); c++) {
+        const ix = mid - half + (row ? (c + st) * (half * 2 / row) : 0);
+        lay.push({ x: X(ix + (rnd() - .5) * 18), y: Y(yy + (rnd() - .5) * 10) - k * PILE.layer, rot: (rnd() - .5) * .9, sq: .5 + rnd() * .38, r: PILE.r * (.92 + rnd() * .14), d: Math.abs(ix - 345) / 300 });
+      }
+    }
+    // сначала монеты ближе к центру, затем к краям; задние раньше передних, чтобы передние ложились сверху
+    lay.sort((p, q) => (p.d > .55) - (q.d > .55) || p.y - q.y);
+    slots.push(...lay); k++;
+  }
+}
+function takeSlot() {
+  if (pileN < slots.length) return slots[pileN++];
+  pileN++; const t = slots[slots.length - 1];
+  return { x: L.cx + rand(-110, 110), y: t.y - rand(0, 30), rot: rand(-.5, .5), sq: rand(.5, .9), r: PILE.r };
 }
 function bake(sprite, s) {
-  const r = 44, x = s.x - (L.cx - MW / 2), y = s.y - (L.mBase - MH);
-  mx.save(); mx.translate(x, y); mx.rotate(rand(-.5, .5)); mx.shadowColor = 'rgba(0,0,0,.45)'; mx.shadowBlur = 5; mx.drawImage(sprite, -r, -r, r * 2, r * 2); mx.restore();
-  const k = 600 / (2 * L.slotHW); heights[s.c] += 24 * k; heights[s.c - 1] += 14 * k; heights[s.c + 1] += 14 * k;
+  const x = s.x - (L.cx - MW / 2), y = s.y - (L.mBase - MH);
+  mx.save(); mx.translate(x, y); mx.rotate(s.rot); mx.scale(1, s.sq);
+  mx.shadowColor = 'rgba(0,0,0,.5)'; mx.shadowBlur = 6; mx.shadowOffsetY = 4;
+  mx.drawImage(sprite, -s.r, -s.r, s.r * 2, s.r * 2); mx.restore();
+}
+// n монет летят в сундук одна за другой; первая через delay секунд
+function pourCoins(n, pick, fx, fy, delay = 0, spread = 1) {
+  const S = Math.min(1.6, n * .04) * spread;
+  for (let i = 0; i < n; i++) {
+    const slot = takeSlot();
+    flyers.push({ sprite: pick(i), x: fx + rand(-60, 60), y: fy + rand(-30, 30), t: -delay - i * S / Math.max(1, n), d: rand(.42, .55), tx: slot.x, ty: slot.y, slot, a: rand(0, TAU), r: slot.r });
+  }
+  return S;
 }
 
 // Звук из браузера, без файлов
 let ac = null, mute = false;
-function unlock() { if (!ac) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) ac = new AC(); } if (ac && ac.state === 'suspended') ac.resume().then(startAmbient); else startAmbient(); }
+function unlock() { if (!ac) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) ac = new AC(); } loadSounds(); if (ac && ac.state === 'suspended') ac.resume().then(startAmbient); else startAmbient(); }
 addEventListener('pointerdown', unlock);
+// Звуки из файлов: положите mp3 в games/mint/sounds/ и впишите имя сюда. Чего нет, то синтезируется кодом.
+const SOUND_FILES = [];   // например: ['clank', 'clink', 'pour', 'reveal', 'reveal_big', 'win', 'build', 'king', 'whoosh', 'rope', 'belt_loop', 'amb_forge']
+const sbuf = {}; let soundsAsked = false;
+function loadSounds() {
+  if (soundsAsked || !ac) return; soundsAsked = true;
+  SOUND_FILES.forEach(n => fetch('sounds/' + n + '.mp3?v=' + BUILD).then(r => r.ok ? r.arrayBuffer() : null)
+    .then(b => b && new Promise((ok, no) => ac.decodeAudioData(b, ok, no))).then(d => { if (d) sbuf[n] = d; }).catch(() => {}));
+}
+function play(n, v = 1, rate = 1, at = 0) {
+  const b = sbuf[n]; if (!b) return false;
+  const src = ac.createBufferSource(), gn = ac.createGain(); src.buffer = b; src.playbackRate.value = rate; gn.gain.value = v;
+  src.connect(gn).connect(ac.destination); src.start(ac.currentTime + at); return true;
+}
 function tone(f, d, type, v, at = 0, to) {
   const t = ac.currentTime + at, o = ac.createOscillator(), n = ac.createGain();
   o.type = type; o.frequency.setValueAtTime(f, t); if (to) o.frequency.exponentialRampToValueAtTime(to, t + d);
@@ -349,6 +393,9 @@ function noise(d, f, q, v, at = 0, type = 'bandpass', to) {
 function bell(f, d, v, at = 0) { tone(f, d, 'sine', v, at); tone(f * 2.76, d * .5, 'sine', v * .35, at); tone(f * 5.4, d * .25, 'sine', v * .12, at); }
 function sfx(k, ti) {
   if (!ac || mute || ac.state !== 'running') return;
+  const file = { whoosh: ['whoosh', .8, 1], clank: ['clank', 1, 1 - (ti || 0) * .04], clink: ['clink', .6, rand(.9, 1.15)], rope: ['rope', .6, rand(.95, 1.05)],
+    ta: [(ti || 0) >= 3 ? 'reveal_big' : 'reveal', .9, 1 + (ti || 0) * .04], win: ['win', 1, 1], build: ['build', .9, 1], king: ['king', 1, 1], pour: ['pour', .8, rand(.95, 1.05)] }[k];
+  if (file && play(file[0], file[1], file[2])) return;
   if (k === 'whoosh') noise(.22, 600, .8, .06, 0, 'bandpass', 2400);
   if (k === 'clank') {                                          // удар пресса по плите
     tone(170, .22, 'sine', .38, 0, 45); noise(.07, 2600, .7, .26, 0, 'highpass');
@@ -359,6 +406,8 @@ function sfx(k, ti) {
   if (k === 'ta') { const n = 2 + ti; for (let i = 0; i < n; i++) bell(523 * 2 ** ([0, 4, 7, 12, 16, 19][i] / 12), .55, .09, i * .08); if (ti >= 3) noise(.6, 7000, 2, .04, .1, 'highpass'); }
   if (k === 'win') { [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => { const f = 392 * 2 ** (s / 12); tone(f, .6, 'sawtooth', .035, i * .09); bell(f * 2, .9, .07, i * .09); }); noise(.9, 6000, 1.5, .06, .1, 'highpass'); }
   if (k === 'build') { noise(1.3, 250, 1.2, .07, 0, 'bandpass', 3200); tone(110, 1.3, 'sawtooth', .03, 0, 440); }
+  if (k === 'pour') { const n = 8 + Math.floor(rand(0, 6)); for (let i = 0; i < n; i++) { const at = rand(0, .9), r = rand(.85, 1.2); [2800, 4150].forEach((f, q) => tone(f * r, .2, 'sine', .035 / (q + 1), at)); noise(.03, 5000, 1, .03, at, 'highpass'); } }
+  if (k === 'king') { [[392, 0, .14], [392, .15, .14], [523, .3, .5], [659, .3, .5], [784, .3, .6]].forEach(([f, at, d]) => { tone(f, d, 'sawtooth', .045, at); tone(f, d, 'square', .02, at); bell(f * 2, d + .3, .04, at); }); }
   if (k === 'spark') noise(.03 + Math.random() * .03, rand(2500, 6500), 2, .035, 0, 'bandpass');
 }
 let crackleOn = false;
@@ -397,11 +446,17 @@ function updateAmbient(dt) {
   amb.rumble.gn.gain.setTargetAtTime(.3 + .14 * p + .3 * anvilKick, t, .2);
   amb.motor.gn.gain.setTargetAtTime(v * .05, t, .08); amb.motor.fl.frequency.setTargetAtTime(600 + 500 * v, t, .1);
   amb.hg.gain.setTargetAtTime(v * .06, t, .1);
+  // файлы окружения, если есть: заменяют синтез
+  const loop = (n, v) => { const src = ac.createBufferSource(), gn = ac.createGain(); src.buffer = sbuf[n]; src.loop = true; gn.gain.value = v; src.connect(gn).connect(amb.out); src.start(); return gn; };
+  if (sbuf.amb_forge && !amb.forge) amb.forge = loop('amb_forge', .7);
+  if (sbuf.belt_loop && !amb.beltLoop) { amb.beltLoop = loop('belt_loop', 0); }
+  if (amb.forge) { amb.fire.gn.gain.setTargetAtTime(0, t, .2); amb.rumble.gn.gain.setTargetAtTime(.12 * anvilKick, t, .2); }
+  if (amb.beltLoop) { amb.beltLoop.gain.setTargetAtTime(v * .8, t, .1); amb.motor.gn.gain.setTargetAtTime(0, t, .1); amb.hg.gain.setTargetAtTime(0, t, .1); }
   if (mute) return;
   // стук пластин ленты о ролики
-  const pl = Math.floor(beltScroll / 82); if (pl !== amb.plate) { amb.plate = pl; if (v > .1) { noise(.035, 1500, 1.4, .02 + .03 * v, 0, 'bandpass'); tone(120, .06, 'sine', .03 * v); } }
+  const pl = Math.floor(beltScroll / 82); if (pl !== amb.plate) { amb.plate = pl; if (v > .1 && !amb.beltLoop) { noise(.035, 1500, 1.4, .02 + .03 * v, 0, 'bandpass'); tone(120, .06, 'sine', .03 * v); } }
   // далёкий молот в соседней кузнице
-  if ((amb.hammer -= dt) <= 0) {
+  if ((amb.hammer -= dt) <= 0 && !amb.forge) {
     amb.hammer = rand(7, 14); const n = 2 + Math.floor(rand(0, 3)), f = rand(620, 860);
     for (let i = 0; i < n; i++) { const at = i * rand(.38, .5); tone(f, .4, 'sine', .022, at); tone(f * 2.7, .18, 'sine', .008, at); noise(.04, 1300, .8, .018, at, 'bandpass'); }
   }
@@ -422,7 +477,10 @@ function update(dt) {
   }
   burstHold = Math.max(0, burstHold - dt); lvlBadge = Math.max(0, lvlBadge - dt);
   if (!build && !job && burstHold <= 0 && !flyers.length && value >= curGoal()) startBuild();
-  if (!build && !job && burstHold <= 0 && !flyers.length && value > 0 && pileLevel < Math.min(1, value / curGoal()) - .02) pourTo(Math.min(1, value / curGoal()), 4, L.cx, L.pileY - 420);
+  if (!build && !job && burstHold <= 0 && !flyers.length && pileN < Math.min(value, curGoal() + PILE.extra)) {   // остаток после взрыва: монеты того, кто взорвал
+    const pool = sprites.length ? sprites.slice(-3) : [{ s: blankCoin(0) }];
+    pourCoins(Math.min(80, Math.min(value, curGoal() + PILE.extra) - pileN), i => pool[i % pool.length].s, L.cx, L.pileY - 420);
+  }
   updateBelt(dt); updateAmbient(dt); updateDust(dt);
   if (!job) startNext();
   let target = 0;
@@ -437,7 +495,7 @@ function update(dt) {
     pressY = target;
   } else pressY = lerp(pressY, 0, clamp(dt * 8));
   for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.life -= dt; if (p.life <= 0) { parts.splice(i, 1); continue; } p.vy += 1100 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
-  for (let i = flyers.length - 1; i >= 0; i--) { const f = flyers[i]; f.t += dt; if (f.t > f.d) { flyers.splice(i, 1); if (f.slot) bake(f.sprite, f.slot); if (i % 3 === 0) sfx('clink', 0); chestKick = Math.max(chestKick, .5); } }
+  for (let i = flyers.length - 1; i >= 0; i--) { const f = flyers[i]; f.t += dt; if (f.t > f.d) { flyers.splice(i, 1); if (f.slot) bake(f.sprite, f.slot); if (Math.random() < .35) sfx('clink', 0); chestKick = Math.max(chestKick, .5); } }
   for (let i = tiny.length - 1; i >= 0; i--) { const p = tiny[i]; p.life -= dt; if (p.life <= 0 || p.y > H + 700) { tiny.splice(i, 1); continue; } p.vy += 1400 * dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.spin) { p.ang += p.vang * dt; if (p.grow) p.r += p.grow * dt; } else p.a += p.va * dt; }
   for (let i = rings.length - 1; i >= 0; i--) { rings[i].t += dt; if (rings[i].t > rings[i].d) rings.splice(i, 1); }
   for (let i = twinkles.length - 1; i >= 0; i--) { twinkles[i].t += dt; if (twinkles[i].t > twinkles[i].d) twinkles.splice(i, 1); }
@@ -665,12 +723,12 @@ function bgToStage(bx, by) {
 function beltGeo() {
   const F = FRAME, sf = F.s, hole = F.hole, cx = L.cx, plankTop = L.anvil + 66;
   const fx = cx - (hole[0] + hole[2]) / 2 * sf, px0 = fx + hole[0] * sf, post = fx + 70 * sf;
-  const p = bgToStage(105, 0), bx0 = p ? p.x : 120, f = bgToStage(0, 900);
+  const p = bgToStage(64, 0), bx0 = p ? p.x : 80, f = bgToStage(0, 900);
   const bh = art.belt ? art.belt.height * BELT.scale : 30, by = plankTop - 18;
   return { bx0, px0, post, by, bh, endX: post - BELT.r - 6, cy: by + 5 - BELT.r, floor: f ? f.y : by + 260 };
 }
 function updateBelt(dt) {
-  const G = beltGeo(), spawnX = G.bx0 + 6;
+  const G = beltGeo(), spawnX = G.bx0 - BELT.r - 10;   // монета появляется глубоко в арке и выезжает из темноты
   // из арки выходит следующая монета, если на ленте есть место
   if (queue.length && belt.length < BELT.n) {
     sortQueue(); const j = queue.shift(), last = belt[belt.length - 1];
@@ -708,7 +766,7 @@ function drawBelt() {
   g.save(); g.beginPath(); g.rect(bx0, 0, W, H); g.clip();
   const now = performance.now();
   belt.forEach((j, i) => {
-    const al = clamp((j.bx - bx0 + 20) / 120); if (al <= 0) return;
+    const al = clamp((j.bx - bx0 - 10) / 190) ** 1.4; if (al <= 0) return;
     const r = BELT.r, y = G.cy - (beltV > 20 ? Math.abs(Math.sin(beltScroll * .09 + i)) * 1.6 : 0), x = j.bx, t = TIERS[j.tier];
     g.globalAlpha = al * .5; g.fillStyle = '#000'; g.beginPath(); g.ellipse(x + 4, by + 6, r * .85, 6, 0, 0, TAU); g.fill();
     g.globalAlpha = al; g.drawImage(blankCoin(j.tier), x - r, y - r, r * 2, r * 2);
@@ -719,16 +777,21 @@ function drawBelt() {
     g.fillStyle = t.c[1]; g.beginPath(); g.moveTo(-9, 24); g.lineTo(9, 24); g.lineTo(0, 37); g.fill();
     g.beginPath(); g.arc(0, 0, 33, 0, TAU); g.fill(); g.lineWidth = 3; g.strokeStyle = t.c[0]; g.stroke();
     g.drawImage(thumb(avatarOf(j)), -28, -28, 56, 56);
+    if (owner && owner.uid === j.uid) drawCrown(0, -46, 40);
     if (j.free) txt('❤', 24, -22, 22, '#ff5b7f', 'center', 3);
     else if (j.combo >= 2) txt('×' + j.combo, 26, -24, 20, '#fff1a8', 'center', 4);
     g.restore();
     if (i === 0 && j.bx >= G.endX - 2) { g.globalAlpha = al * (.35 + .25 * Math.sin(time * 5)); g.strokeStyle = t.c[0]; g.lineWidth = 3; g.beginPath(); g.arc(x, y, r + 6, 0, TAU); g.stroke(); }
   });
   g.restore(); g.globalAlpha = 1;
-  // темнота проёма поверх начала ленты и монет
+  // темнота проёма поверх начала ленты: лента уходит вглубь арки, красный отсвет печи на ней
   if (art.belt) {
-    const fd = g.createLinearGradient(bx0, 0, bx0 + 130, 0); fd.addColorStop(0, 'rgba(14,6,5,.96)'); fd.addColorStop(1, 'rgba(14,6,5,0)');
-    g.fillStyle = fd; g.fillRect(bx0, by - 4, 130, bh + 8);
+    const fw = 210, fd = g.createLinearGradient(bx0, 0, bx0 + fw, 0);
+    fd.addColorStop(0, 'rgba(10,4,4,1)'); fd.addColorStop(.35, 'rgba(14,6,5,.75)'); fd.addColorStop(1, 'rgba(14,6,5,0)');
+    g.fillStyle = fd; g.fillRect(bx0 - 2, by - 6, fw, bh + 12);
+    const gl = g.createLinearGradient(bx0, 0, bx0 + 260, 0), k = .16 + .05 * Math.sin(time * 7) + .03 * Math.sin(time * 17);
+    gl.addColorStop(0, 'rgba(255,90,40,0)'); gl.addColorStop(.3, `rgba(255,90,40,${k})`); gl.addColorStop(1, 'rgba(255,90,40,0)');
+    g.save(); g.globalCompositeOperation = 'lighter'; g.fillStyle = gl; g.fillRect(bx0, by - 3, 260, bh * .55); g.restore();
   }
 }
 function drawPressArt() {
@@ -791,8 +854,10 @@ function drawJob() {
       if (j.tier >= 3) rays(cx, L.heroY, r * .45, len * .7, n, cols.slice().reverse(), -time * .5, al * .8);
     }
     halo(cx, y, r * (1.8 + j.tier * .25), t.c[1], .3 + j.tier * .1);
+    if (j.king) { rays(cx, L.heroY, r * .6, 330 * intro, 16, ['#fff1a8', '#ffb12b'], -time * .4, .3); halo(cx, y, r * 2.4, '#ffd36b', .4); }
     coinAt(j.sprite, cx, y, r);
     glint(cx, y, r * .97, (tt % 1.5) / .7, .5);
+    if (j.king) drawCrown(cx, y - r - 52 + Math.sin(time * 3) * 6 - (1 - intro) * 200, 150 * intro);
     const ns = 4 + j.tier * 2;
     for (let i = 0; i < ns; i++) { const q = i / ns * TAU + time * .4, d = r * (1.14 + .08 * Math.sin(time * 2 + i)); star(cx + Math.cos(q) * d, y + Math.sin(q) * d, 12 + j.tier * 4, Math.max(0, Math.sin(time * 4 + i * 1.7)) * intro, i % 2 ? '#ffffff' : t.c[0]); }
     const ps = easeBack(clamp((tt - .08) / .3));
@@ -812,8 +877,8 @@ function drawJob() {
     if (j.free) txt(j.src === 'follow' ? '➕' : '👍', cx - r * .78, L.heroY - r * .7, 64, '#fff', 'center', 0);
     if (j.count > 1) { const cs = easeBack(clamp((tt - .2) / .3)); if (cs > 0) { g.save(); g.translate(cx + r * .74, L.heroY - r * .74); g.rotate(-.18); g.scale(cs, cs); txt('×' + j.count, 0, 0, 80, t.c[0], 'center', 8); g.restore(); } }
   } else if (j.ph === 6) {
-    const r0 = heroR(j), tx = j.slot.x, ty = j.slot.y;
-    const pos = v => { const e = easeIn(v); return [lerp(cx, tx, e), lerp(L.heroY, ty, e) - Math.sin(v * Math.PI) * 90, lerp(r0, 44, e)]; };
+    const r0 = heroR(j), tx = j.slot.x, ty = j.slot.y, r1 = j.slot.r;
+    const pos = v => { const e = easeIn(v); return [lerp(cx, tx, e), lerp(L.heroY, ty, e) - Math.sin(v * Math.PI) * 90, lerp(r0, r1, e)]; };
     for (let k = 4; k >= 1; k--) { const v = u - k * .05; if (v <= 0) continue; const p = pos(v); g.globalAlpha = .12 * (5 - k) / 4; coinAt(j.sprite, p[0], p[1], p[2]); }
     g.globalAlpha = 1; const p = pos(u); spinCoin(j.sprite, j.tier, p[0], p[1], p[2], u * TAU * 1.5);
   }
@@ -828,32 +893,85 @@ function drawQueue() {
   txt('+' + queue.length, 18, 1, 32, '#fff1a8', 'center', 0);
   g.restore();
 }
+// Корона кодом: одинаково выглядит на любом телефоне, в отличие от эмодзи
+function drawCrown(x, y, w, a = 1) {
+  const h = w * .62;
+  g.save(); g.translate(x, y); g.globalAlpha *= a;
+  g.beginPath(); g.moveTo(-w / 2, h * .5); g.lineTo(-w / 2, -h * .1); g.lineTo(-w * .27, h * .12); g.lineTo(-w * .14, -h * .5); g.lineTo(0, h * .02);
+  g.lineTo(w * .14, -h * .5); g.lineTo(w * .27, h * .12); g.lineTo(w / 2, -h * .1); g.lineTo(w / 2, h * .5); g.closePath();
+  const m = g.createLinearGradient(0, -h * .5, 0, h * .5); m.addColorStop(0, '#fff3a6'); m.addColorStop(.5, '#f2b829'); m.addColorStop(1, '#a8670d');
+  g.fillStyle = m; g.fill(); g.lineWidth = Math.max(2, w * .05); g.strokeStyle = '#5a3606'; g.stroke();
+  g.fillStyle = '#7a4a08'; g.fillRect(-w / 2, h * .32, w, h * .18);
+  [[-w * .25, '#e0244d'], [0, '#3fd0ff'], [w * .25, '#e0244d']].forEach(([gx, c]) => { g.fillStyle = c; g.beginPath(); g.arc(gx, h * .41, w * .065, 0, TAU); g.fill(); });
+  [-w / 2, -w * .14, w * .14, w / 2].forEach(px => { g.fillStyle = '#fff6c8'; g.beginPath(); g.arc(px, px === -w / 2 || px === w / 2 ? -h * .1 : -h * .5, w * .055, 0, TAU); g.fill(); });
+  g.restore();
+}
+function ironChain(x0, y0, x1, y1) {
+  const len = Math.hypot(x1 - x0, y1 - y0), n = Math.max(2, Math.floor(len / 9)), ang = Math.atan2(y1 - y0, x1 - x0);
+  g.save(); g.translate(x0, y0); g.rotate(ang);
+  for (let k = 0; k < n; k++) { const px = (k + .5) * len / n, f = k % 2 === 0; g.beginPath(); g.ellipse(px, 0, 6, f ? 4 : 1.4, 0, 0, TAU); g.lineWidth = f ? 2.4 : 3; g.strokeStyle = f ? '#9a96a0' : '#4c4852'; g.stroke(); }
+  g.restore();
+}
+let kingPulse = 0;
+const plaqueY = new Map();
 function drawTop() {
-  const cx = W - 76, y0 = L.queueTop, now = performance.now();
-  // хозяин сундука: чья монета взорвала сундук последней
-  if (owner && now >= owner.at) {
-    const a = avatars.get(owner.uid), age = (now - owner.at) / 1000, ps = easeBack(clamp(age / .4)), oy2 = y0 + 46;
-    halo(cx, oy2, 130, '#ffd36b', .35 + .12 * Math.sin(time * 2.6));
-    g.save(); g.translate(cx, oy2); g.scale(ps, ps);
-    g.fillStyle = '#e8b923'; g.beginPath(); g.arc(0, 0, 58, 0, TAU); g.fill(); g.lineWidth = 4; g.strokeStyle = '#fff1a8'; g.stroke();
-    if (a) g.drawImage(thumb(a), -50, -50, 100, 100);
+  const cx = W - 92, ty = L.queueTop + 40, now = performance.now();
+  // Трон-медальон короля сундука: чья монета взорвала сундук последней
+  const has = owner && now >= owner.at, age = has ? (now - owner.at) / 1000 : 0, ps = has ? easeBack(clamp(age / .45)) : 1;
+  kingPulse = Math.max(0, kingPulse - .016);
+  if (has) { rays(cx, ty, 50, 150 + 30 * kingPulse, 12, ['#fff1a8', '#ffb12b'], time * .3, .22 + .25 * kingPulse); halo(cx, ty, 170, '#ffd36b', .28 + .1 * Math.sin(time * 2.6) + .3 * kingPulse); }
+  g.save(); g.translate(cx, ty); g.scale(ps * (1 + .06 * kingPulse), ps * (1 + .06 * kingPulse)); if (!has) g.globalAlpha = .45;
+  // плащ за медальоном
+  const cl = g.createLinearGradient(0, -40, 0, 130); cl.addColorStop(0, '#b0182f'); cl.addColorStop(1, '#4e0812');
+  g.beginPath(); g.moveTo(-46, -30); g.quadraticCurveTo(-104, 40, -86, 128); g.quadraticCurveTo(-43, 112, 0, 128); g.quadraticCurveTo(43, 112, 86, 128); g.quadraticCurveTo(104, 40, 46, -30); g.closePath();
+  g.fillStyle = cl; g.fill(); g.lineWidth = 4; g.strokeStyle = '#e8b923'; g.stroke();
+  g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 3; [-52, 52].forEach(fx => { g.beginPath(); g.moveTo(fx * .6, 10); g.quadraticCurveTo(fx, 60, fx * 1.2, 120); g.stroke(); });
+  // золотая розетка
+  g.beginPath(); for (let k = 0; k < 32; k++) { const q = k / 32 * TAU + time * .15, rr2 = k % 2 ? 70 : 80; g.lineTo(Math.cos(q) * rr2, Math.sin(q) * rr2); } g.closePath();
+  const gm = g.createRadialGradient(-20, -24, 10, 0, 0, 82); gm.addColorStop(0, '#fff3a6'); gm.addColorStop(.6, '#e8a91c'); gm.addColorStop(1, '#8a560a');
+  g.fillStyle = gm; g.fill(); g.lineWidth = 3; g.strokeStyle = '#5a3606'; g.stroke();
+  g.beginPath(); g.arc(0, 0, 63, 0, TAU); g.fillStyle = '#3a2208'; g.fill(); g.lineWidth = 4; g.strokeStyle = '#fff1a8'; g.stroke();
+  const av = has && avatars.get(owner.uid);
+  if (av) g.drawImage(thumb(av), -57, -57, 114, 114); else txt('?', 0, 4, 70, '#fff1a8', 'center', 0);
+  g.restore();
+  if (has) glint(cx, ty, 58, ((time * .22) % 1) / .3, .5);
+  // корона: падает сверху при смене короля, потом покачивается
+  drawCrown(cx, ty - 98 + Math.sin(time * 2.2) * 5 - (has ? (1 - easeOut(clamp(age / .6))) * 220 : 0), 92, has ? 1 : .4);
+  // лента с ником
+  if (has) {
+    const by = ty + 106; g.save(); g.translate(cx, by); g.scale(ps, ps);
+    g.fillStyle = '#7a0f1f'; [[-1], [1]].forEach(([d]) => { g.beginPath(); g.moveTo(d * 70, -14); g.lineTo(d * 98, -14); g.lineTo(d * 88, 2); g.lineTo(d * 98, 18); g.lineTo(d * 70, 18); g.fill(); });
+    rr(-80, -20, 160, 40, 8); g.fillStyle = '#c21f37'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#ffd36b'; g.stroke();
+    txt(shortName(owner.user, 9), 0, 1, 22, '#fff5df', 'center', 4);
     g.restore();
-    glint(cx, oy2, 50, ((time * .25) % 1) / .3, .45);
-    txt('👑', cx, oy2 - 76 + Math.sin(time * 2.4) * 5 - (1 - easeOut(clamp(age / .55))) * 160, 54, '#fff', 'center', 0);
-    txt(shortName(owner.user, 9), cx, oy2 + 78, 22, '#fff1a8', 'center', 5);
-    txt('💥×' + owner.b, cx, oy2 + 106, 22, '#fff5df', 'center', 5);
-    if (age < 1.1) for (let k = 0; k < 8; k++) { const q = k / 8 * TAU + age * 2, d = 90 * easeOut(age / 1.1); star(cx + Math.cos(q) * d, oy2 + Math.sin(q) * d, 16, 1 - age / 1.1, '#fff1a8'); }
-  } else {
-    g.save(); g.globalAlpha = .35; g.setLineDash([8, 8]); g.lineWidth = 4; g.strokeStyle = '#fff1a8'; g.beginPath(); g.arc(cx, y0 + 46, 56, 0, TAU); g.stroke(); g.setLineDash([]);
-    txt('👑', cx, y0 - 30, 48, '#fff', 'center', 0); txt('?', cx, y0 + 48, 56, '#fff1a8', 'center', 0); g.restore();
+    txt('💥×' + owner.b, cx, by + 38, 21, '#fff1a8', 'center', 5);
+    if (age < 1.1) for (let k = 0; k < 10; k++) { const q = k / 10 * TAU + age * 2, d = 110 * easeOut(age / 1.1); star(cx + Math.cos(q) * d, ty + Math.sin(q) * d, 18, 1 - age / 1.1, '#fff1a8'); }
   }
-  // топ-3 дарителей эфира
-  const colors = [TIERS[2].c[1], TIERS[1].c[1], TIERS[0].c[1]];
+  // Кованые таблички лидеров эфира на цепях
+  const metal = [['#ffe27a', '#a1730c'], ['#eef2f6', '#7f8a97'], ['#ffc28a', '#8a4a1f']];
+  let prevY = ty + 168, prevX = cx;
   topDonors.forEach((d, i) => {
-    const y = y0 + 210 + i * 92, a = avatars.get(d.uid);
-    g.fillStyle = colors[i]; g.beginPath(); g.arc(cx, y, 36, 0, TAU); g.fill();
-    if (a) g.drawImage(thumb(a), cx - 31, y - 31, 62, 62);
-    txt(String(d.sum), cx, y + 42, 21, '#fff5df', 'center', 5);
+    const target = ty + 220 + i * 102; let py = plaqueY.get(d.uid); if (py == null) py = target - 160;
+    py = lerp(py, target, .12); plaqueY.set(d.uid, py);
+    const sw = Math.sin(time * 1.3 + i * 1.7) * .035, w = i === 0 ? 184 : 172, h = 78;
+    ironChain(prevX - 60, prevY, cx - 60 + Math.sin(sw) * 40, py - h / 2 + 2); ironChain(prevX + 60, prevY, cx + 60 + Math.sin(sw) * 40, py - h / 2 + 2);
+    g.save(); g.translate(cx, py - h / 2); g.rotate(sw); g.translate(0, h / 2);
+    g.fillStyle = 'rgba(0,0,0,.3)'; rr(-w / 2 + 6, -h / 2 + 8, w, h, 12); g.fill();
+    const wd = g.createLinearGradient(0, -h / 2, 0, h / 2); wd.addColorStop(0, '#7a4e2c'); wd.addColorStop(1, '#3b2213');
+    rr(-w / 2, -h / 2, w, h, 12); g.fillStyle = wd; g.fill(); g.lineWidth = 5; g.strokeStyle = i === 0 ? '#c99a2e' : '#2b2830'; g.stroke();
+    g.strokeStyle = 'rgba(255,220,160,.18)'; g.lineWidth = 2; g.beginPath(); g.moveTo(-w / 2 + 12, -h / 2 + 7); g.lineTo(w / 2 - 12, -h / 2 + 7); g.stroke();
+    g.fillStyle = '#c9a65a'; [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sy]) => { g.beginPath(); g.arc(sx * (w / 2 - 10), sy * (h / 2 - 10), 3.6, 0, TAU); g.fill(); });
+    const a = avatars.get(d.uid), m = metal[i];
+    g.fillStyle = m[0]; g.beginPath(); g.arc(-w / 2 + 40, 0, 29, 0, TAU); g.fill(); g.lineWidth = 3; g.strokeStyle = m[1]; g.stroke();
+    if (a) g.drawImage(thumb(a), -w / 2 + 15, -25, 50, 50);
+    const mg = g.createRadialGradient(-w / 2 + 10, -h / 2 + 6, 2, -w / 2 + 14, -h / 2 + 10, 20); mg.addColorStop(0, '#fff'); mg.addColorStop(.4, m[0]); mg.addColorStop(1, m[1]);
+    g.fillStyle = mg; g.beginPath(); g.arc(-w / 2 + 14, -h / 2 + 10, 17, 0, TAU); g.fill(); g.lineWidth = 2; g.strokeStyle = '#2b1a08'; g.stroke();
+    txt(String(i + 1), -w / 2 + 14, -h / 2 + 11, 21, '#2b1a08', 'center', 0);
+    txt(shortName(d.user, 8), 28, -13, 21, '#fff1d6', 'center', 4);
+    coinAt(blankCoin(i === 0 ? 2 : i === 1 ? 1 : 0), -6, 16, 11); txt(String(d.sum), 34, 17, 24, m[0], 'center', 4);
+    g.restore();
+    if (i === 0) glint(cx, py, w / 2.4, ((time * .18 + .5) % 1) / .4, .25);
+    prevY = py + h / 2 - 2; prevX = cx + Math.sin(sw) * 40;
   });
 }
 function drawChest() {
@@ -914,7 +1032,7 @@ function draw() {
   else drawChest();
   drawTwinkles(); drawQueue(); drawTop();
   if (cine > .01) { g.fillStyle = `rgba(6,3,9,${cine})`; g.fillRect(-ox / scale - 60, -oy / scale - 60, SCW / scale + 120, SCH / scale + 120); }
-  for (const f of flyers) { if (f.t < 0) continue; const u = clamp(f.t / f.d); g.save(); g.translate(lerp(f.x, f.tx, u), lerp(f.y, f.ty, u * u) - Math.sin(u * Math.PI) * 120); g.rotate(f.a + u * 8); g.drawImage(f.sprite, -f.r, -f.r, f.r * 2, f.r * 2); g.restore(); }
+  for (const f of flyers) { if (f.t < 0) continue; const u = clamp(f.t / f.d); g.save(); g.translate(lerp(f.x, f.tx, u), lerp(f.y, f.ty, u * u) - Math.sin(u * Math.PI) * 120); g.rotate(lerp(f.a + 8, f.slot ? f.slot.rot : 0, u * u)); g.scale(1, lerp(1, f.slot ? f.slot.sq : 1, u * u)); g.drawImage(f.sprite, -f.r, -f.r, f.r * 2, f.r * 2); g.restore(); }
   drawIdle(); drawJob();
   for (const p of tiny) {
     g.globalAlpha = clamp(p.life / .6) * (p.grow ? clamp(1 - (p.r - 60) / 140) : 1);
@@ -1000,7 +1118,7 @@ if (Live.testMode) {
   bots = true; pn.querySelector('button:nth-of-type(8)').setAttribute('aria-pressed', 'true');
 }
 
-window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, stat: () => ({ fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
+window.__mint = { coinTest: (src, ti) => makeCoin({ src }, ti), letter: letterAvatar, portrait: k => makePortrait(k), onLike, onFollow, owner: () => owner, sfx: (k, t) => { unlock(); sfx(k, t); }, addGift, botGift, sounds: () => Object.keys(sbuf), stat: () => ({ slots: slots.length, pileN, fps, queue: queue.length, belt: belt.length, total, level, value, wall: wall.length, job: job && job.ph, W: SCW, H: SCH, scale, order: queue.slice(0, 3).map(j => j.tier) }), setBots: v => { bots = v; } };
 resize();
 requestAnimationFrame(loop);
 })();
